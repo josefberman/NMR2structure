@@ -1,3 +1,4 @@
-from database import import_database_as_df
+from database import import_database
+from sklearn.model_selection import train_test_split
 
-nmr_df = import_database_as_df()
+nmr_df = import_database()

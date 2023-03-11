@@ -22,14 +22,18 @@ def import_database():
         nmr_df['Molecule'] = mols  # store molecule as RDKit molecule class in dataframe
         nmr_df['Name'] = [x.GetProp('_Name') for x in mols if x is not None]  # store molecule's name in dataframe
         nmr_df['MACCS'] = [maccs_to_list(x) for x in mols if x is not None]  # store MACCS fingerprint in dataframe
-        nmr_df['Spectrum 13C'] = nmr_df.apply(extract_carbon_spectrum, axis=1)  # extract first encountered 13C spectrum
-        nmr_df['Spectrum 1H'] = nmr_df.apply(extract_proton_spectrum, axis=1)  # extract first encountered 1H spectrum
+        nmr_df['Spectrum 13C'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 13C',
+                                              axis=1)  # extract first encountered 13C spectrum
+        nmr_df['Spectrum 1H'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 1H',
+                                             axis=1)  # extract first encountered 1H spectrum
         nmr_df = nmr_df.iloc[:, -5:]  # leave only necessary columns
         nmr_df = nmr_df[(nmr_df['Spectrum 13C'].notnull()) & (nmr_df['Spectrum 1H'].notnull())]  # leave only molecules
         # with both spectra
-        nmr_df['Spectrum 13C'] = nmr_df.apply(extract_carbon_smi, axis=1)  # convert string format carbon spectrum
+        nmr_df['Spectrum 13C'] = nmr_df.apply(extract_smi, spectrum_type='Spectrum 13C',
+                                              axis=1)  # convert string format carbon spectrum
         # into lists (input for model)
-        nmr_df['Spectrum 1H'] = nmr_df.apply(extract_proton_smi, axis=1)  # convert string format proton spectrum
+        nmr_df['Spectrum 1H'] = nmr_df.apply(extract_smi, spectrum_type='Spectrum 1H',
+                                             axis=1)  # convert string format proton spectrum
         # into lists (input for model)
         # write_db_to_pickle(nmr_df)
     return nmr_df
@@ -47,28 +51,16 @@ def read_db_from_pickle(pickle_path='./database/nmr_db.pkl'):
     return None
 
 
-def extract_carbon_spectrum(nmr_df_row: pd.Series):
+def extract_spectrum(nmr_df_row: pd.Series, spectrum_type: str):
     """
     Return the first non-Null carbon spectrum from a dataframe row
     :param nmr_df_row: current molecule's row to extract carbon spectrum
     :return: a proton spectrum (if exists) as string
     """
     temp_row = nmr_df_row.dropna()
-    temp_row = temp_row.filter(like='Spectrum 13C')
-    if temp_row.empty:
-        return None
-    else:
-        return temp_row[0]
-
-
-def extract_proton_spectrum(nmr_df_row: pd.Series):
-    """
-    Return the first non-Null proton spectrum from a dataframe row
-    :param nmr_df_row: current molecule's row to extract proton spectrum
-    :return: a proton spectrum (if exists) as string
-    """
-    temp_row = nmr_df_row.dropna()
-    temp_row = temp_row.filter(like='Spectrum 1H')
+    temp_row = temp_row.filter(like=spectrum_type)
+    temp_row = temp_row[temp_row.str.contains('[A-Za-z]')]
+    temp_row = temp_row[~temp_row.str.contains('J=')]
     if temp_row.empty:
         return None
     else:
@@ -112,30 +104,18 @@ def split_peaks(nmr_df_row: pd.Series, column_name: str):
     return split_str
 
 
-def extract_carbon_smi(nmr_df_row: pd.Series):
+def extract_smi(nmr_df_row: pd.Series, spectrum_type: str):
     """
     Extracting the chemical shift and multiplicity from carbon spectrum
     :param nmr_df_row: row of dataframe containing the carbon spectrum as string
     :return: numpy 2d array of shift,multiplicity
     """
-    extracted_string = re.sub('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*([A-Za-z]+);[0-9]*\|?', '\\1;\\2;',
-                              nmr_df_row['Spectrum 13C'])
-    split_list = extracted_string.split(';')
-    split_list = np.array(split_list)[:-1].reshape(-1, 2)
-    unique_elements, elements_count = np.unique(split_list, return_counts=True)
+    # extracted_string = re.sub('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*.?[0-9]*([A-Za-z]+\s?[A-Za-z]*[\^`\']?);[0-9]*\|?', '\\1;\\2;',
+    #                          nmr_df_row['Spectrum 13C'])
+    extracted_string = re.findall('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*.?[0-9]*([A-Za-z]+\s?[A-Za-z]*[\^`\']?);[0-9]*\|?',
+                                  nmr_df_row[spectrum_type])
+    unique_elements, elements_count = np.unique(extracted_string, return_counts=True, axis=0)
     return_list = []
     for i, j in zip(unique_elements, elements_count):
-        return_list.append([i[0], i[1], j])
+        return_list.append([float(i[0]), i[1], j])
     return return_list
-
-
-def extract_proton_smi(nmr_df_row: pd.Series):
-    """
-    Extracting the chemical shift from proton spectrum
-    :param nmr_df_row: row of dataframe containing the proton spectrum as string
-    :return: numpy 1d array of shifts
-    """
-    extracted_string = re.sub('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*[A-Za-z]*;[0-9]*\|?', '\\1;',
-                              nmr_df_row['Spectrum 1H'])
-    split_list = extracted_string.split(';')
-    return np.array(split_list)[:-1]

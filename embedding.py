@@ -1,5 +1,4 @@
 import keras
-import tensorflow
 from keras.layers import Dense, Input
 
 
@@ -20,4 +19,4 @@ def embedding_autoencoder():
     autoencoder = keras.Model(autoencoder_input, decoded, name='autoencoder')
 
     autoencoder.compile(loss='mse', optimizer='adam')
-    return (encoder, decoder, autoencoder)
+    return encoder, decoder, autoencoder

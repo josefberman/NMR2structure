@@ -35,7 +35,7 @@ def import_database():
         nmr_df['Spectrum 1H'] = nmr_df.apply(extract_smi, spectrum_type='Spectrum 1H',
                                              axis=1)  # convert string format proton spectrum
         # into lists (input for model)
-        # write_db_to_pickle(nmr_df)
+        write_db_to_pickle(nmr_df)
     return nmr_df
 
 
@@ -54,17 +54,21 @@ def read_db_from_pickle(pickle_path='./database/nmr_db.pkl'):
 def extract_spectrum(nmr_df_row: pd.Series, spectrum_type: str):
     """
     Return the first non-Null carbon spectrum from a dataframe row
+    :param spectrum_type: type of spectrum between proton and carbon
     :param nmr_df_row: current molecule's row to extract carbon spectrum
     :return: a proton spectrum (if exists) as string
     """
     temp_row = nmr_df_row.dropna()
     temp_row = temp_row.filter(like=spectrum_type)
-    temp_row = temp_row[temp_row.str.contains('[A-Za-z]')]
     temp_row = temp_row[~temp_row.str.contains('J=')]
-    if temp_row.empty:
-        return None
+    temp_row_with_multiplicity = temp_row[temp_row.str.contains('[A-Za-z]')]
+    if temp_row_with_multiplicity.empty:
+        if temp_row.empty:
+            return None
+        else:
+            return temp_row[0]
     else:
-        return temp_row[0]
+        return temp_row_with_multiplicity[0]
 
 
 def is_carbohydrate(mol):
@@ -107,14 +111,23 @@ def split_peaks(nmr_df_row: pd.Series, column_name: str):
 def extract_smi(nmr_df_row: pd.Series, spectrum_type: str):
     """
     Extracting the chemical shift and multiplicity from carbon spectrum
+    :param spectrum_type: type of spectrum between proton and carbon
     :param nmr_df_row: row of dataframe containing the carbon spectrum as string
     :return: numpy 2d array of shift,multiplicity
     """
-    # extracted_string = re.sub('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*.?[0-9]*([A-Za-z]+\s?[A-Za-z]*[\^`\']?);[0-9]*\|?', '\\1;\\2;',
-    #                          nmr_df_row['Spectrum 13C'])
     extracted_string = re.findall('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*.?[0-9]*([A-Za-z]+\s?[A-Za-z]*[\^`\']?);[0-9]*\|?',
                                   nmr_df_row[spectrum_type])
-    unique_elements, elements_count = np.unique(extracted_string, return_counts=True, axis=0)
+    if not extracted_string:
+        extracted_string = re.findall(
+            '([0-9]*.?[0-9]*);[0-9]*.?[0-9]*.?[0-9]*([A-Za-z]*\s?[A-Za-z]*[\^`\']?);[0-9]*\|?',
+            nmr_df_row[spectrum_type])
+    extracted_string_new = []
+    for element in extracted_string:
+        element_as_list = list(element)
+        if element_as_list[1] == '':
+            element_as_list[1] = 'S'
+        extracted_string_new.append(tuple(element_as_list))
+    unique_elements, elements_count = np.unique(extracted_string_new, return_counts=True, axis=0)
     return_list = []
     for i, j in zip(unique_elements, elements_count):
         return_list.append([float(i[0]), i[1], j])

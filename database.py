@@ -1,10 +1,16 @@
+import pickle
+
 from rdkit import Chem
 from rdkit import RDLogger
-from rdkit.Chem import MACCSkeys, AllChem
+from rdkit.Chem import MACCSkeys
 import pandas as pd
 import numpy as np
 import re
 import os
+from sklearn.preprocessing import OneHotEncoder
+
+list_of_multiplicities = []
+max_intensity = 0
 
 
 def import_database():
@@ -35,18 +41,26 @@ def import_database():
         nmr_df['Spectrum 1H'] = nmr_df.apply(extract_smi, spectrum_type='Spectrum 1H',
                                              axis=1)  # convert string format proton spectrum
         # into lists (input for model)
+        nmr_df['embedded 13C'] = nmr_df.apply(peak_embedding, spectrum_type='Spectrum 13C', axis=1)
+        nmr_df['embedded 1H'] = nmr_df.apply(peak_embedding, spectrum_type='Spectrum 1H', axis=1)
         write_db_to_pickle(nmr_df)
     return nmr_df
 
 
 def write_db_to_pickle(nmr_df, pickle_path='./database/nmr_db.pkl'):
     nmr_df.to_pickle(pickle_path)
+    with open('./database/global_variables.pkl', 'wb') as file:
+        pickle.dump((list_of_multiplicities, max_intensity), file)
     return 0
 
 
 def read_db_from_pickle(pickle_path='./database/nmr_db.pkl'):
+    global list_of_multiplicities
+    global max_intensity
     if os.path.exists(pickle_path):
         nmr_df = pd.read_pickle(pickle_path)
+        with open('./database/global_variables.pkl', 'rb') as file:
+            list_of_multiplicities, max_intensity = pickle.load(file)
         return nmr_df
     return None
 
@@ -115,6 +129,8 @@ def extract_smi(nmr_df_row: pd.Series, spectrum_type: str):
     :param nmr_df_row: row of dataframe containing the carbon spectrum as string
     :return: numpy 2d array of shift,multiplicity
     """
+    global list_of_multiplicities
+    global max_intensity
     extracted_string = re.findall('([0-9]*.?[0-9]*);[0-9]*.?[0-9]*.?[0-9]*([A-Za-z]+\s?[A-Za-z]*[\^`\']?);[0-9]*\|?',
                                   nmr_df_row[spectrum_type])
     if not extracted_string:
@@ -131,4 +147,37 @@ def extract_smi(nmr_df_row: pd.Series, spectrum_type: str):
     return_list = []
     for i, j in zip(unique_elements, elements_count):
         return_list.append([float(i[0]), i[1], j])
+        if i[1] not in list_of_multiplicities:
+            list_of_multiplicities.append(i[1])
+        if j > max_intensity:
+            max_intensity = j
     return return_list
+
+
+def flatten(list_of_lists):
+    result = []
+    for item in list_of_lists:
+        if isinstance(item, list):
+            result.extend(flatten(item))
+        else:
+            result.append(item)
+    return result
+
+
+def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
+    multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
+    intensity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
+    multiplicity_encoder.fit(np.reshape(list_of_multiplicities, (-1, 1)))
+    intensity_encoder.fit(np.reshape(range(1, max_intensity+1), (-1, 1)))
+    embedded_row = []
+    embedded_element = []
+    for element in nmr_df_row[spectrum_type]:
+        if spectrum_type == 'Spectrum 13C':
+            embedded_element.append(element[0] / 100.0)  # reduce shifts to units (usually hundreds)
+        else:
+            embedded_element.append(element[0] / 10.0)  # reduce shifts to units (usually tens)
+        embedded_element.append(multiplicity_encoder.transform([[element[1]]]).tolist())
+        embedded_element.append(intensity_encoder.transform([[element[2]]]).tolist())
+        embedded_row.append(flatten(embedded_element))
+        embedded_element = []
+    return embedded_row

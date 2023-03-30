@@ -79,6 +79,8 @@ def extract_spectrum(nmr_df_row: pd.Series, spectrum_type: str):
     if temp_row_with_multiplicity.empty:
         if temp_row.empty:
             return None
+        elif not temp_row[0]:
+            return None
         else:
             return temp_row[0]
     else:
@@ -171,6 +173,7 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
     intensity_encoder.fit(np.reshape(range(1, max_intensity+1), (-1, 1)))
     embedded_row = []
     embedded_element = []
+    length_of_embedding = 0
     for element in nmr_df_row[spectrum_type]:
         if spectrum_type == 'Spectrum 13C':
             embedded_element.append(element[0] / 100.0)  # reduce shifts to units (usually hundreds)
@@ -179,5 +182,8 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
         embedded_element.append(multiplicity_encoder.transform([[element[1]]]).tolist())
         embedded_element.append(intensity_encoder.transform([[element[2]]]).tolist())
         embedded_row.append(flatten(embedded_element))
+        length_of_embedding = len(embedded_row[-1])
         embedded_element = []
+    for _ in range(200-len(nmr_df_row[spectrum_type])):
+        embedded_row.append([0]*length_of_embedding)
     return embedded_row

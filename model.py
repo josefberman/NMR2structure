@@ -3,34 +3,62 @@ import keras
 import tensorflow as tf
 from keras.layers import Input, Conv2D, Dense, Concatenate, MaxPool2D, Flatten
 from keras.callbacks import TensorBoard
+from keras.constraints import Constraint
 from datetime import datetime
+
+
+class ZeroConstraint(Constraint):
+    def __init__(self, mask):
+        self.mask = tf.convert_to_tensor(mask, dtype=tf.float32)
+
+    def __call__(self, w):
+        return w * self.mask
+
+
+def create_kernel_constraint(kernel_size: int, kernel_length: int, num_filters: int):
+    mask = np.ndarray([1,95,1,10])
+
+    mask = [[0] * kernel_length] * kernel_size
+    mask[0] = [1] * kernel_length
+    mask[-1] = [1] * kernel_length
+    mask = [mask]
+    mask = [mask] * num_filters
+    return mask
 
 
 def initialize_model(input_size: int, embedding_length: int, fingerprint_length: int = 166):
     input_layer_carbon = Input(shape=(input_size, embedding_length, 1))
     input_layer_proton = Input(shape=(input_size, embedding_length, 1))
-    conv_layer_1_carbon = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_1_carbon = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(1, embedding_length, 10)))(
         input_layer_carbon)
-    conv_layer_2_carbon = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_2_carbon = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(2, embedding_length, 10)))(
         input_layer_carbon)
-    conv_layer_3_carbon = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_3_carbon = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(3, embedding_length, 10)))(
         input_layer_carbon)
-    conv_layer_4_carbon = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_4_carbon = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(4, embedding_length, 10)))(
         input_layer_carbon)
-    conv_layer_1_proton = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_1_proton = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(1, embedding_length, 10)))(
         input_layer_proton)
-    conv_layer_2_proton = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_2_proton = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(2, embedding_length, 10)))(
         input_layer_proton)
-    conv_layer_3_proton = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_3_proton = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(3, embedding_length, 10)))(
         input_layer_proton)
-    conv_layer_4_proton = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid')(
+    conv_layer_4_proton = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid',
+                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(4, embedding_length, 10)))(
         input_layer_proton)
     concat_layer_carbon = Concatenate(axis=1)(
         [conv_layer_1_carbon, conv_layer_2_carbon, conv_layer_3_carbon, conv_layer_4_carbon])
-    maxpool_layer_carbon = MaxPool2D(pool_size=(2, 1), strides=(2, 1), padding='valid')(concat_layer_carbon)
+    maxpool_layer_carbon = MaxPool2D(pool_size=(4, 1), strides=(2, 1), padding='valid')(concat_layer_carbon)
     concat_layer_proton = Concatenate(axis=1)(
         [conv_layer_1_proton, conv_layer_2_proton, conv_layer_3_proton, conv_layer_4_proton])
-    maxpool_layer_proton = MaxPool2D(pool_size=(2, 1), strides=(2, 1), padding='valid')(concat_layer_proton)
+    maxpool_layer_proton = MaxPool2D(pool_size=(4, 1), strides=(2, 1), padding='valid')(concat_layer_proton)
     conv_layer_1_carbon = Conv2D(filters=10, kernel_size=(1, 1), strides=(1, 1), padding='valid')(
         maxpool_layer_carbon)
     conv_layer_2_carbon = Conv2D(filters=10, kernel_size=(2, 1), strides=(1, 1), padding='valid')(
@@ -50,7 +78,8 @@ def initialize_model(input_size: int, embedding_length: int, fingerprint_length:
     concat_layer_all = Concatenate(axis=1)(
         [conv_layer_1_carbon, conv_layer_2_carbon, conv_layer_3_carbon, conv_layer_4_carbon, conv_layer_1_proton,
          conv_layer_2_proton, conv_layer_3_proton, conv_layer_4_proton])
-    flatten_layer = Flatten()(concat_layer_all)
+    maxpool_layer_all = MaxPool2D(pool_size=(4, 1), strides=(2, 1), padding='valid')(concat_layer_all)
+    flatten_layer = Flatten()(maxpool_layer_all)
     dense_layer = Dense(units=fingerprint_length * 2, activation='relu')(flatten_layer)
     output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
     model = keras.Model(inputs=[input_layer_carbon, input_layer_proton],
@@ -64,7 +93,7 @@ def train_model(model: keras.Model, carbon_input_array: np.array, proton_input_a
                 maccs_fingerprint: np.array):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     tensorboard_callback = TensorBoard(log_dir=f'./logs/{timestamp}', write_graph=True, write_images=True)
-    model.fit(x=[carbon_input_array, proton_input_array], y=maccs_fingerprint, batch_size=32, epochs=10,
+    model.fit(x=[carbon_input_array, proton_input_array], y=maccs_fingerprint, batch_size=32, epochs=100,
               callbacks=[tensorboard_callback], validation_split=0.15)
     return model
 

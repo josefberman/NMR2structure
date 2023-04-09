@@ -22,6 +22,8 @@ def import_database():
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
+        mols = [x for x in mols if len(x.GetAtoms()) < 20]
+        # mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
         # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
         # RDKit molecular and NMR properties
@@ -170,7 +172,7 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
     multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
     intensity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
     multiplicity_encoder.fit(np.reshape(list_of_multiplicities, (-1, 1)))
-    intensity_encoder.fit(np.reshape(range(1, max_intensity+1), (-1, 1)))
+    intensity_encoder.fit(np.reshape(range(1, max_intensity + 1), (-1, 1)))
     embedded_row = []
     embedded_element = []
     length_of_embedding = 0
@@ -184,6 +186,6 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
         embedded_row.append(flatten(embedded_element))
         length_of_embedding = len(embedded_row[-1])
         embedded_element = []
-    for _ in range(200-len(nmr_df_row[spectrum_type])):
-        embedded_row.append([0]*length_of_embedding)
+    for _ in range(200 - len(nmr_df_row[spectrum_type])):
+        embedded_row.append([0] * length_of_embedding)
     return embedded_row

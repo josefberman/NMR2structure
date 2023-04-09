@@ -11,11 +11,13 @@ nmr_df = import_database()
 proton_input_array = np.array(nmr_df['embedded 1H'].tolist())
 carbon_input_array = np.array(nmr_df['embedded 13C'].tolist())
 maccs_fingerprint = np.array(nmr_df['MACCS'].tolist())
+print('Input shape:', proton_input_array.shape, carbon_input_array.shape)
+print('Output shape:', maccs_fingerprint.shape)
 proton_input_train, proton_input_test, carbon_input_train, carbon_input_test, \
     maccs_fingerprint_train, maccs_fingerprint_test = train_test_split(proton_input_array, carbon_input_array,
                                                                        maccs_fingerprint, test_size=0.15)
 
-model = initialize_model(input_size=200, embedding_length=95, fingerprint_length=167)
+model = initialize_model(input_size=200, embedding_length=56, fingerprint_length=167)
 print('model initialized')
 model = train_model(model=model, carbon_input_array=carbon_input_train, proton_input_array=proton_input_train,
                     maccs_fingerprint=maccs_fingerprint_train)

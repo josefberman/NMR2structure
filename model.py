@@ -16,43 +16,32 @@ class ZeroConstraint(Constraint):
 
 
 def create_kernel_constraint(kernel_size: int, kernel_length: int, num_filters: int):
-    mask = np.ndarray([1,95,1,10])
-
-    mask = [[0] * kernel_length] * kernel_size
-    mask[0] = [1] * kernel_length
-    mask[-1] = [1] * kernel_length
-    mask = [mask]
-    mask = [mask] * num_filters
+    mask = np.zeros((kernel_size, kernel_length, 1, num_filters))
+    mask[0, :, :, :] = 1  # sets the first row in mask to 1, in each filter
+    mask[-1, :, :, :] = 1  # sets the last row in mask to 1, in each filter
     return mask
 
 
 def initialize_model(input_size: int, embedding_length: int, fingerprint_length: int = 166):
     input_layer_carbon = Input(shape=(input_size, embedding_length, 1))
     input_layer_proton = Input(shape=(input_size, embedding_length, 1))
-    conv_layer_1_carbon = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(1, embedding_length, 10)))(
+    conv_layer_1_carbon = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_carbon)
-    conv_layer_2_carbon = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(2, embedding_length, 10)))(
+    conv_layer_2_carbon = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_carbon)
-    conv_layer_3_carbon = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(3, embedding_length, 10)))(
+    conv_layer_3_carbon = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_carbon)
-    conv_layer_4_carbon = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(4, embedding_length, 10)))(
+    conv_layer_4_carbon = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_carbon)
-    conv_layer_1_proton = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(1, embedding_length, 10)))(
+    conv_layer_1_proton = Conv2D(filters=10, kernel_size=(1, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_proton)
-    conv_layer_2_proton = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(2, embedding_length, 10)))(
+    conv_layer_2_proton = Conv2D(filters=10, kernel_size=(2, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_proton)
-    conv_layer_3_proton = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(3, embedding_length, 10)))(
+    conv_layer_3_proton = Conv2D(filters=10, kernel_size=(3, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_proton)
-    conv_layer_4_proton = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid',
-                                 kernel_constraint=ZeroConstraint(create_kernel_constraint(4, embedding_length, 10)))(
+    conv_layer_4_proton = Conv2D(filters=10, kernel_size=(4, embedding_length), strides=(1, 1), padding='valid')(
         input_layer_proton)
+    """
     concat_layer_carbon = Concatenate(axis=1)(
         [conv_layer_1_carbon, conv_layer_2_carbon, conv_layer_3_carbon, conv_layer_4_carbon])
     maxpool_layer_carbon = MaxPool2D(pool_size=(4, 1), strides=(2, 1), padding='valid')(concat_layer_carbon)
@@ -75,12 +64,14 @@ def initialize_model(input_size: int, embedding_length: int, fingerprint_length:
         maxpool_layer_proton)
     conv_layer_4_proton = Conv2D(filters=10, kernel_size=(4, 1), strides=(1, 1), padding='valid')(
         maxpool_layer_proton)
+    """
     concat_layer_all = Concatenate(axis=1)(
         [conv_layer_1_carbon, conv_layer_2_carbon, conv_layer_3_carbon, conv_layer_4_carbon, conv_layer_1_proton,
          conv_layer_2_proton, conv_layer_3_proton, conv_layer_4_proton])
-    maxpool_layer_all = MaxPool2D(pool_size=(4, 1), strides=(2, 1), padding='valid')(concat_layer_all)
+    maxpool_layer_all = MaxPool2D(pool_size=(4, 1), strides=(1, 1), padding='valid')(concat_layer_all)
     flatten_layer = Flatten()(maxpool_layer_all)
     dense_layer = Dense(units=fingerprint_length * 2, activation='relu')(flatten_layer)
+    dense_layer = Dense(units=fingerprint_length * 2, activation='relu')(dense_layer)
     output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
     model = keras.Model(inputs=[input_layer_carbon, input_layer_proton],
                         outputs=output_layer)

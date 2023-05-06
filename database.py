@@ -182,10 +182,11 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
         else:
             embedded_element.append(element[0] / 10.0)  # reduce shifts to units (usually tens)
         embedded_element.append(multiplicity_encoder.transform([[element[1]]]).tolist())
-        embedded_element.append(intensity_encoder.transform([[element[2]]]).tolist())
+        embedded_element.append(element[2])
+        # embedded_element.append(intensity_encoder.transform([[element[2]]]).tolist())
         embedded_row.append(flatten(embedded_element))
         length_of_embedding = len(embedded_row[-1])
         embedded_element = []
-    for _ in range(200 - len(nmr_df_row[spectrum_type])):
+    for _ in range(30 - len(nmr_df_row[spectrum_type])):
         embedded_row.append([0] * length_of_embedding)
     return embedded_row

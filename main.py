@@ -1,5 +1,4 @@
-from model import initialize_model, train_model, predict_model, evaluate_model, train_model_with_hp_tuning, \
-    encode_spectrum
+from model import initialize_model, train_model, predict_model, evaluate_model, encode_spectrum
 
 from database import import_database
 from sklearn.model_selection import train_test_split
@@ -16,15 +15,18 @@ carbon_input = np.array(nmr_df['embedded 13C'].tolist())
 print('proton input shape:', proton_input.shape)
 print('carbon input shape:', carbon_input.shape)
 
-latent_proton_input = encode_spectrum(proton_input)
-latent_carbon_input = encode_spectrum(carbon_input)
-print('latent proton shape:', latent_proton_input.shape)
-print('latent carbon shape:', latent_carbon_input.shape)
+latent_input = encode_spectrum(np.concatenate((proton_input, carbon_input), axis=1))
+print('latent input shape:', latent_input.shape)
 
-unified_latent_input = np.concatenate(latent_proton_input, latent_carbon_input)
-
-# unified_input_array = np.array([[x, y] for x, y in zip(proton_input, carbon_input)])
 maccs_fingerprint = np.array(nmr_df['MACCS'].tolist())
+print('maccs output shape:', maccs_fingerprint.shape)
+
+latent_train, latent_test, maccs_train, maccs_test = train_test_split(latent_input, maccs_fingerprint, test_size=0.2)
+
+model = initialize_model(input_size=latent_train.shape[1], fingerprint_length=167)
+model = train_model(model, latent_train, maccs_train)
+score = evaluate_model(model, latent_test, maccs_test)
+print(f'Eval loss: {score[0]}\nEval jacard index: {score[1]}\nEval Hamming distance: {score[2]*167.0}')
 
 # unified_input_train, unified_input_test, maccs_fingerprint_train, maccs_fingerprint_test = train_test_split(
 #     unified_input_array, maccs_fingerprint, test_size=0.15)

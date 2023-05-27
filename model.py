@@ -5,10 +5,10 @@ import numpy as np
 import tensorflow as tf
 from keras.callbacks import TensorBoard, EarlyStopping, ReduceLROnPlateau
 from keras.constraints import Constraint
-from keras.layers import Input, Conv2D, Dense, Concatenate, MaxPool2D, Flatten, Reshape
+from keras.layers import Input, Conv2D, Dense, Concatenate, MaxPool2D, Flatten, Reshape, BatchNormalization, Conv1D, \
+    ReLU, Add, GlobalAveragePooling1D
 from keras.models import Model
 from keras.losses import Huber
-from keras.layers import LeakyReLU
 from sklearn.model_selection import train_test_split
 from keras.optimizers import Adam
 from keras_tuner.tuners import BayesianOptimization
@@ -75,18 +75,28 @@ def create_kernel_constraint(kernel_size: int, kernel_length: int, num_filters: 
 
 
 def initialize_model(input_size: int, fingerprint_length: int = 167):
-    input_layer = Input(shape=(input_size,))
-    prior_output_layers = []
-    for i in range(fingerprint_length):
-        dense_layer = Dense(units=input_size, activation='tanh')(input_layer)
-        while dense_layer.shape[1] > 1:
-            dense_layer = Dense(units=dense_layer.shape[1] // 2, activation='tanh')(dense_layer)
-        else:
-            dense_layer = Dense(units=1, activation='tanh')(dense_layer)
-        prior_output_layers.append(dense_layer)
-    output_layer = Concatenate()(prior_output_layers)
+    input_layer = Input(shape=(input_size, ))
+    dense_layer = Dense(units=input_size, activation='tanh')(input_layer)
+    dense_layer = Dense(units=input_size, activation='tanh')(dense_layer)
+    dense_layer = Dense(units=input_size, activation='tanh')(dense_layer)
+    output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
+    # input_layer = Input(shape=(input_size, 1))
+    # pooling_layer_list = []
+    # for i in np.logspace(start=0, stop=int(np.log2(input_size)), num=int(np.log2(input_size)) + 1, base=2):
+    #     temp_input_layer = input_layer
+    #     for j in range(3):
+    #         conv_layer = Conv1D(filters=64, kernel_size=int(i), padding='same')(temp_input_layer)
+    #         bn_layer = BatchNormalization()(conv_layer)
+    #         conv_layer = Conv1D(filters=64, kernel_size=int(i), padding='same')(bn_layer)
+    #         bn_layer = BatchNormalization()(conv_layer)
+    #         add_layer = Add()([temp_input_layer, bn_layer])
+    #         temp_input_layer = add_layer
+    #     pooling_layer_list.append(GlobalAveragePooling1D(keepdims=True)(add_layer))
+    # concat_layer = Concatenate()(pooling_layer_list)
+    # dense_layer = Dense(units=fingerprint_length, activation='sigmoid')(concat_layer)
+    # output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
     model = keras.Model(inputs=input_layer, outputs=output_layer)
-    model.compile(optimizer=Adam(learning_rate=1e-5), loss=Huber(), metrics=[jaccard_index, hamming_distance])
+    model.compile(optimizer=Adam(learning_rate=1e-5), loss=Huber(), metrics=[hamming_distance])
     print(model.summary())
     return model
 

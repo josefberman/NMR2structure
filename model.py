@@ -112,8 +112,8 @@ def train_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np
     return model
 
 
-def predict_model(model: keras.Model, carbon_input_array: np.array, proton_input_array: np.array):
-    return model.predict(x=[carbon_input_array, proton_input_array])
+def predict_model(model: keras.Model, input_array: np.array):
+    return model.predict(x=input_array)
 
 
 def evaluate_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np.array):

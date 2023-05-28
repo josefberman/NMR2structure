@@ -8,6 +8,9 @@ import numpy as np
 import re
 import os
 from sklearn.preprocessing import OneHotEncoder
+from IPython.display import Image, display
+import requests
+import subprocess
 
 list_of_multiplicities = []
 max_intensity = 0
@@ -23,7 +26,7 @@ def import_database():
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
         mols = [x for x in mols if len(x.GetAtoms()) < 20]
-        # mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
+        #mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
         # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
         # RDKit molecular and NMR properties
@@ -115,6 +118,24 @@ def maccs_to_structure(maccs_list: list):
     return smarts
 
 
+def maccs_to_substructures(maccs_list: list):
+    idx = [i for i in range(len(maccs_list)) if maccs_list[i] == 1]
+    return [MACCSkeys.smartsPatts[i][0] for i in idx]
+
+
+def visualize_smarts(initials:str, mol_index: int, smarts_index: int, smarts: str):
+    smarts = re.sub(r'%', '%25', smarts)
+    smarts = re.sub(r'&', '%26', smarts)
+    smarts = re.sub(r'\+', '%2B', smarts)
+    smarts = re.sub(r'#', '%23', smarts)
+    smarts = re.sub(r';', '%3B', smarts)
+    url = 'https://smarts.plus/smartsview/download_rest?smarts=' + smarts
+    res = requests.get(url)
+    os.makedirs(f'./substructures/mol{mol_index}', exist_ok=True)
+    with open(f'./substructures/mol{mol_index}/{initials}_{smarts_index}.jpg', 'wb') as f:
+        f.write(res.content)
+
+
 def clean_spectra(nmr_df_row: pd.Series):
     nmr_df_row['Spectrum 13C'] = split_peaks(nmr_df_row, 'Spectrum 13C')
     nmr_df_row['Spectrum 1H'] = split_peaks(nmr_df_row, 'Spectrum 1H')
@@ -187,6 +208,6 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
         embedded_row.append(flatten(embedded_element))
         length_of_embedding = len(embedded_row[-1])
         embedded_element = []
-    for _ in range(30 - len(nmr_df_row[spectrum_type])):
+    for _ in range(60 - len(nmr_df_row[spectrum_type])):
         embedded_row.append([0] * length_of_embedding)
     return embedded_row

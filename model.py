@@ -6,12 +6,22 @@ import tensorflow as tf
 from keras.callbacks import TensorBoard, EarlyStopping, ReduceLROnPlateau
 from keras.constraints import Constraint
 from keras.layers import Input, Conv2D, Dense, Concatenate, MaxPool2D, Flatten, Reshape, BatchNormalization, Conv1D, \
-    ReLU, Add, GlobalAveragePooling1D
+    ReLU, Add, GlobalAveragePooling1D, Dropout
 from keras.models import Model
 from keras.losses import Huber
 from sklearn.model_selection import train_test_split
 from keras.optimizers import Adam
 from keras_tuner.tuners import BayesianOptimization
+from keras import backend as K
+from sklearn.model_selection import KFold
+import os
+from sklearn.preprocessing import normalize
+
+
+def encoder_cosine_similarity(y_true, y_pred):
+    y_true = y_true / tf.sqrt(tf.cast(tf.reduce_sum(tf.pow(y_true, 2)), float))
+    y_pred = y_pred / tf.sqrt(tf.cast(tf.reduce_sum(tf.pow(y_pred, 2)), float))
+    return tf.reduce_sum(y_true * y_pred)
 
 
 def jaccard_index(y_true, y_pred):
@@ -41,27 +51,33 @@ def encode_spectrum(input_array: np.array):
     input_train = input_array[:int(input_array.shape[0] * 0.9)]
     input_test = input_array[int(input_array.shape[0] * 0.9):]
     input_shape = input_train.shape[1:]
-    encoder_inputs = Input(shape=input_shape, name='input_layer_encoder')
+    encoder_inputs = Input(shape=(*input_shape, 1))
     x_0 = Flatten(name='flatten_layer_encoder')(encoder_inputs)
-    x_1 = Dense(units=x_0.shape[1], activation=None, name='dense_layer_0_encoder')(x_0)
-    x_2 = Dense(units=x_1.shape[1], activation=None, name='dense_layer_1_encoder')(x_1)
-    x_3 = Dense(units=x_2.shape[1], activation=None, name='dense_layer_2_encoder')(x_2)
-    encoder_outputs = Dense(units=512, activation=None, name='output_layer_encoder')(x_3)
+    x_1 = Dense(units=3096)(x_0)
+    x_2 = Dense(units=2048)(x_1)
+    x_3 = Dense(units=1024)(x_2)
+    encoder_outputs = Dense(units=512, name='output_layer_encoder')(x_3)
 
     # Decoder block
-    x_4 = Dense(units=x_3.shape[1], activation=None, name='dense_layer_1_decoder')(encoder_outputs)
-    x_5 = Dense(units=x_2.shape[1], activation=None, name='dense_layer_2_decoder')(x_4)
-    x_6 = Dense(units=x_1.shape[1], name='dense_layer_3_decoder')(x_5)
-    x_6 = Dense(units=x_6.shape[1], name='dense_layer_4_decoder')(x_6)
-    decoder_outputs = Reshape(input_shape, name='output_layer_decoder')(x_6)
+    x_6 = Dense(units=1024)(encoder_outputs)
+    x_7 = Dense(units=2048)(x_6)
+    x_8 = Dense(units=3960)(x_7)
+    x_9 = Dense(units=x_0.shape[1])(x_8)
+    decoder_outputs = Reshape(input_shape, name='output_layer_decoder')(x_9)
     autoencoder = Model(inputs=encoder_inputs, outputs=decoder_outputs)
     encoder = Model(inputs=encoder_inputs, outputs=encoder_outputs)
-    autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss=Huber())
+    autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse', metrics=[encoder_cosine_similarity])
     print(autoencoder.summary())
-    early_stopping = EarlyStopping(patience=10, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(patience=5)
-    autoencoder.fit(x=input_train, y=input_train, epochs=200, batch_size=32, validation_split=0.8,
-                    callbacks=[early_stopping, reduce_lr])
+    early_stopping = EarlyStopping(patience=5, restore_best_weights=True)
+    reduce_lr = ReduceLROnPlateau(patience=3, min_delta=1e-6)
+    encoder_tensorboard = TensorBoard(log_dir='./encoder_logs/')
+    if not os.path.exists('./saved_encoder_model'):
+        autoencoder.fit(x=input_train, y=input_train, epochs=1000, batch_size=32, validation_split=0.8, shuffle=True,
+                        callbacks=[early_stopping, encoder_tensorboard, reduce_lr])
+        autoencoder.save('./saved_encoder_model/')
+    else:
+        autoencoder = keras.models.load_model('./saved_encoder_model/',
+                                              custom_objects={'encoder_cosine_similarity': encoder_cosine_similarity})
     score = autoencoder.evaluate(input_test, input_test)
     print('Test loss: ', score)
     return encoder.predict(input_array)
@@ -75,29 +91,14 @@ def create_kernel_constraint(kernel_size: int, kernel_length: int, num_filters: 
 
 
 def initialize_model(input_size: int, fingerprint_length: int = 167):
-    input_layer = Input(shape=(input_size, ))
-    dense_layer = Dense(units=input_size, activation='tanh')(input_layer)
-    dense_layer = Dense(units=input_size, activation='tanh')(dense_layer)
-    dense_layer = Dense(units=input_size, activation='tanh')(dense_layer)
+    input_layer = Input(shape=(input_size,))
+    dense_layer = Dense(units=3 * input_size, activation='tanh')(input_layer)
+    dense_layer = Dense(units=3 * input_size, activation='tanh')(dense_layer)
+    dense_layer = Dense(units=3 * input_size, activation='tanh')(dense_layer)
     output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
-    # input_layer = Input(shape=(input_size, 1))
-    # pooling_layer_list = []
-    # for i in np.logspace(start=0, stop=int(np.log2(input_size)), num=int(np.log2(input_size)) + 1, base=2):
-    #     temp_input_layer = input_layer
-    #     for j in range(3):
-    #         conv_layer = Conv1D(filters=64, kernel_size=int(i), padding='same')(temp_input_layer)
-    #         bn_layer = BatchNormalization()(conv_layer)
-    #         conv_layer = Conv1D(filters=64, kernel_size=int(i), padding='same')(bn_layer)
-    #         bn_layer = BatchNormalization()(conv_layer)
-    #         add_layer = Add()([temp_input_layer, bn_layer])
-    #         temp_input_layer = add_layer
-    #     pooling_layer_list.append(GlobalAveragePooling1D(keepdims=True)(add_layer))
-    # concat_layer = Concatenate()(pooling_layer_list)
-    # dense_layer = Dense(units=fingerprint_length, activation='sigmoid')(concat_layer)
-    # output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
     model = keras.Model(inputs=input_layer, outputs=output_layer)
-    model.compile(optimizer=Adam(learning_rate=1e-5), loss=Huber(), metrics=[hamming_distance])
-    print(model.summary())
+    model.compile(optimizer=Adam(learning_rate=1e-6), loss=Huber(), metrics=[hamming_distance])
+    # print(model.summary())
     return model
 
 
@@ -106,9 +107,28 @@ def train_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np
     tensorboard_callback = TensorBoard(log_dir=f'./logs/{timestamp}')
     early_stopping_callback = EarlyStopping(patience=5, restore_best_weights=True)
     reduce_lr_callback = ReduceLROnPlateau(patience=3)
+    metric_per_fold = []
+    loss_per_fold = []
+    kfold = KFold(n_splits=5, shuffle=True)
+    for i, (k_train, k_val) in enumerate(kfold.split(input_array, maccs_fingerprint)):
+        k_model = initialize_model(input_size=input_array.shape[1])
+        tensorboard_callback_fold = TensorBoard(log_dir=f'./logs/{timestamp}/fold_{i + 1}')
+        print(f'--- Training fold {i + 1}')
+        k_model.fit(input_array[k_train], maccs_fingerprint[k_train],
+                    validation_data=(input_array[k_val], maccs_fingerprint[k_val]), batch_size=32, epochs=1000,
+                    callbacks=[early_stopping_callback, reduce_lr_callback, tensorboard_callback_fold], verbose=1)
+        scores = k_model.evaluate(input_array[k_val], maccs_fingerprint[k_val], verbose=0)
+        print(
+            f'Score for fold {i}: {k_model.metrics_names[0]} of {scores[0]}; {k_model.metrics_names[1]} of {scores[1]}')
+        metric_per_fold.append(scores[1])
+        loss_per_fold.append(scores[0])
+    print('Hamming Distance CV:')
+    print(metric_per_fold)
+    print('Loss CV:')
+    print(loss_per_fold)
     model.fit(x=input_array, y=maccs_fingerprint, batch_size=32, epochs=1000,
               callbacks=[tensorboard_callback, early_stopping_callback, reduce_lr_callback], validation_split=0.15,
-              shuffle=False)
+              shuffle=True)
     return model
 
 
@@ -118,62 +138,3 @@ def predict_model(model: keras.Model, input_array: np.array):
 
 def evaluate_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np.array):
     return model.evaluate(x=input_array, y=maccs_fingerprint)
-
-# def build_model(input_size, embedding_length, fingerprint_length, conv_filters_2, conv_filters, conv_kernel,
-#                 conv_kernel_2, dense_units, dense_units_prior_output):
-#     input_layer_carbon = Input(shape=(input_size, embedding_length, 1))
-#     input_layer_proton = Input(shape=(input_size, embedding_length, 1))
-#     conv_layer_carbon = Conv2D(filters=conv_filters, kernel_size=(conv_kernel, embedding_length), strides=(1, 1),
-#                                padding='valid')(input_layer_carbon)
-#     conv_layer_carbon_2 = Conv2D(filters=conv_filters_2, kernel_size=(conv_kernel_2, 1), strides=(1, 1),
-#                                  padding='valid')(conv_layer_carbon)
-#     maxpool_layer_carbon = MaxPool2D(pool_size=(2, 1), strides=(2, 1), padding='valid')(conv_layer_carbon_2)
-#     flatten_layer_carbon = Flatten()(maxpool_layer_carbon)
-#     dense_layer_carbon = Dense(units=dense_units)(flatten_layer_carbon)
-#     conv_layer_proton = Conv2D(filters=conv_filters, kernel_size=(conv_kernel, embedding_length), strides=(1, 1),
-#                                padding='valid')(input_layer_proton)
-#     conv_layer_proton_2 = Conv2D(filters=conv_filters_2, kernel_size=(conv_kernel_2, 1), strides=(1, 1),
-#                                  padding='valid')(conv_layer_proton)
-#     maxpool_layer_proton = MaxPool2D(pool_size=(2, 1), strides=(2, 1), padding='valid')(conv_layer_proton_2)
-#     flatten_layer_proton = Flatten()(maxpool_layer_proton)
-#     dense_layer_proton = Dense(units=dense_units)(flatten_layer_proton)
-#     concat_layer = Concatenate(axis=1)([dense_layer_carbon, dense_layer_proton])
-#     dense_layer = Dense(units=dense_units_prior_output, activation='relu')(concat_layer)
-#     output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
-#     model = keras.Model(inputs=[input_layer_carbon, input_layer_proton], outputs=output_layer)
-#     model.compile(optimizer=Adam(learning_rate=1e-4), loss='mse', metrics=[jaccard_index])
-#     return model
-#
-#
-# def build_hp(hp):
-#     conv_filters = hp.Int('conv_filters', min_value=20, max_value=100, step=10)
-#     conv_filters_2 = hp.Int('conv_filters_2', min_value=20, max_value=100, step=10)
-#     conv_kernel = hp.Int('conv_kernel', min_value=2, max_value=30, step=2)
-#     conv_kernel_2 = hp.Int('conv_kernel_2', min_value=2, max_value=30, step=2)
-#     dense_units = hp.Int('dense_units', min_value=10, max_value=100, step=10)
-#     dense_units_prior_output = hp.Int('dense_units_prior_output', min_value=100, max_value=500, step=50)
-#     model = build_model(200, 56, 167, conv_filters, conv_filters_2, conv_kernel, conv_kernel_2, dense_units,
-#                         dense_units_prior_output)
-#     return model
-#
-#
-# def train_model_with_hp_tuning(carbon_input_array: np.array, proton_input_array: np.array, maccs_fingerprint: np.array):
-#     carbon_input_train, carbon_input_validation, proton_input_train, proton_input_validation, maccs_fingerprint_train, \
-#         maccs_fingerprint_validation = train_test_split(carbon_input_array, proton_input_array, maccs_fingerprint,
-#                                                         test_size=0.15)
-#     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-#     tensorboard_callback = TensorBoard(log_dir=f'./hp_tuning/tensorboard/{timestamp}')
-#     early_stopping_callback = EarlyStopping(patience=5, restore_best_weights=True)
-#     reduce_lr_callback = ReduceLROnPlateau(patience=3)
-#     tuner_nmr = BayesianOptimization(build_hp, seed=42, objective='val_loss', max_trials=200,
-#                                      directory=f'./hp_tuning/{timestamp}/',
-#                                      project_name='tuning_nmr')
-#     print(tuner_nmr.search_space_summary())
-#     tuner_nmr.search([carbon_input_train, proton_input_train], maccs_fingerprint_train, epochs=200, batch_size=32,
-#                      validation_data=([carbon_input_validation, proton_input_validation], maccs_fingerprint_validation),
-#                      callbacks=[tensorboard_callback, early_stopping_callback, reduce_lr_callback], shuffle=False)
-#     best_nmr_hp = tuner_nmr.get_best_hyperparameters(1)[0]
-#     print(f'Best hyper parameters:\n{best_nmr_hp.values}')
-#     best_nmr_model = tuner_nmr.get_best_models(1)[0]
-#     keras.models.save_model(best_nmr_model, f'./hp_tuning/saved_model/{timestamp}')
-#     return best_nmr_model

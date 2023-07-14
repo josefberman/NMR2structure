@@ -8,7 +8,7 @@ import numpy as np
 import re
 import os
 from sklearn.preprocessing import OneHotEncoder
-from IPython.display import Image, display
+# from IPython.display import Image, display
 import requests
 import subprocess
 
@@ -25,7 +25,7 @@ def import_database():
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
-        mols = [x for x in mols if len(x.GetAtoms()) < 20]
+        mols = [x for x in mols if len(x.GetAtoms()) < 10]
         #mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
         # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all

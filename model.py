@@ -53,17 +53,17 @@ def encode_spectrum(input_array: np.array):
     input_shape = input_train.shape[1:]
     encoder_inputs = Input(shape=(*input_shape, 1))
     x_0 = Flatten(name='flatten_layer_encoder')(encoder_inputs)
-    x_1 = Dense(units=3096)(x_0)
-    x_2 = Dense(units=2048)(x_1)
-    x_3 = Dense(units=1024)(x_2)
+    x_1 = Dense(units=2048)(x_0)
+    x_2 = Dense(units=1024)(x_1)
+    x_3 = Dense(units=512)(x_2)
     encoder_outputs = Dense(units=512, name='output_layer_encoder')(x_3)
 
     # Decoder block
-    x_6 = Dense(units=1024)(encoder_outputs)
-    x_7 = Dense(units=2048)(x_6)
-    x_8 = Dense(units=3960)(x_7)
-    x_9 = Dense(units=x_0.shape[1])(x_8)
-    decoder_outputs = Reshape(input_shape, name='output_layer_decoder')(x_9)
+    x_4 = Dense(units=512)(encoder_outputs)
+    x_5 = Dense(units=1024)(x_4)
+    x_6 = Dense(units=2048)(x_5)
+    x_7 = Dense(units=x_0.shape[1])(x_6)
+    decoder_outputs = Reshape(input_shape, name='output_layer_decoder')(x_7)
     autoencoder = Model(inputs=encoder_inputs, outputs=decoder_outputs)
     encoder = Model(inputs=encoder_inputs, outputs=encoder_outputs)
     autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse', metrics=[encoder_cosine_similarity])
@@ -92,9 +92,9 @@ def create_kernel_constraint(kernel_size: int, kernel_length: int, num_filters: 
 
 def initialize_model(input_size: int, fingerprint_length: int = 167):
     input_layer = Input(shape=(input_size,))
-    dense_layer = Dense(units=3 * input_size, activation='tanh')(input_layer)
-    dense_layer = Dense(units=3 * input_size, activation='tanh')(dense_layer)
-    dense_layer = Dense(units=3 * input_size, activation='tanh')(dense_layer)
+    dense_layer = Dense(units=input_size, activation='relu')(input_layer)
+    dense_layer = Dense(units=input_size, activation='relu')(dense_layer)
+    dense_layer = Dense(units=input_size, activation='relu')(dense_layer)
     output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
     model = keras.Model(inputs=input_layer, outputs=output_layer)
     model.compile(optimizer=Adam(learning_rate=1e-6), loss=Huber(), metrics=[hamming_distance])

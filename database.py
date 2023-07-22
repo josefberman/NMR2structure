@@ -25,7 +25,7 @@ def import_database():
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
-        mols = [x for x in mols if len(x.GetAtoms()) < 10]
+        mols = [x for x in mols if len(x.GetAtoms()) <= 21]
         #mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
         # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
@@ -208,6 +208,6 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
         embedded_row.append(flatten(embedded_element))
         length_of_embedding = len(embedded_row[-1])
         embedded_element = []
-    for _ in range(60 - len(nmr_df_row[spectrum_type])):
+    for _ in range(50 - len(nmr_df_row[spectrum_type])):
         embedded_row.append([0] * length_of_embedding)
     return embedded_row

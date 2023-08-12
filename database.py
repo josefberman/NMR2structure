@@ -8,6 +8,8 @@ import numpy as np
 import re
 import os
 from sklearn.preprocessing import OneHotEncoder
+from category_encoders.binary import BinaryEncoder
+from category_encoders.ordinal import OrdinalEncoder
 # from IPython.display import Image, display
 import requests
 import subprocess
@@ -25,7 +27,7 @@ def import_database():
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
-        mols = [x for x in mols if len(x.GetAtoms()) <= 21]
+        mols = [x for x in mols if len(x.GetAtoms()) <= 37]
         #mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
         # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
@@ -171,9 +173,9 @@ def extract_smi(nmr_df_row: pd.Series, spectrum_type: str):
     unique_elements, elements_count = np.unique(extracted_string_new, return_counts=True, axis=0)
     return_list = []
     for i, j in zip(unique_elements, elements_count):
-        return_list.append([float(i[0]), i[1], j])
+        return_list.append([float(i[0]), i[1].lower(), j])
         if i[1] not in list_of_multiplicities:
-            list_of_multiplicities.append(i[1])
+            list_of_multiplicities.append(i[1].lower())
         if j > max_intensity:
             max_intensity = j
     return return_list
@@ -190,9 +192,11 @@ def flatten(list_of_lists):
 
 
 def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
-    multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
+    #multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
     intensity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
-    multiplicity_encoder.fit(np.reshape(list_of_multiplicities, (-1, 1)))
+    #multiplicity_encoder = BinaryEncoder(return_df=False).fit(list_of_multiplicities)
+    multiplicity_encoder = OrdinalEncoder(return_df=False).fit(list_of_multiplicities)
+    #multiplicity_encoder.fit(np.reshape(list_of_multiplicities, (-1, 1)))
     intensity_encoder.fit(np.reshape(range(1, max_intensity + 1), (-1, 1)))
     embedded_row = []
     embedded_element = []
@@ -202,7 +206,7 @@ def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
             embedded_element.append(element[0] / 100.0)  # reduce shifts to units (usually hundreds)
         else:
             embedded_element.append(element[0] / 10.0)  # reduce shifts to units (usually tens)
-        embedded_element.append(multiplicity_encoder.transform([[element[1]]]).tolist())
+        embedded_element.append(multiplicity_encoder.transform([element[1].lower()]).tolist())
         embedded_element.append(element[2])
         # embedded_element.append(intensity_encoder.transform([[element[2]]]).tolist())
         embedded_row.append(flatten(embedded_element))

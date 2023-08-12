@@ -5,9 +5,16 @@ from database import maccs_to_structure, maccs_to_substructures, import_database
 from sklearn.model_selection import train_test_split, cross_val_score, RepeatedStratifiedKFold, GridSearchCV
 import numpy as np
 import os
-from sklearn.metrics import multilabel_confusion_matrix, accuracy_score, recall_score, precision_score, f1_score
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, fbeta_score, roc_curve, auc, \
+    make_scorer
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import xgboost
+import matplotlib.pyplot as plt
+
+
+def concatenate_roc(l: list):
+    return ','.join([str(x) for x in l])
+
 
 if __name__ == '__main__':
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -16,8 +23,8 @@ if __name__ == '__main__':
     nmr_df = import_database()
     proton_input = np.array(nmr_df['embedded 1H'].tolist())
     carbon_input = np.array(nmr_df['embedded 13C'].tolist())
-    proton_input = proton_input / np.max(proton_input)
-    carbon_input = carbon_input / np.max(carbon_input)
+    # proton_input = proton_input / np.max(proton_input)
+    # carbon_input = carbon_input / np.max(carbon_input)
     mol_names_maccs = nmr_df.loc[:, ['Name', 'MACCS']]
     print('max proton ', np.max(proton_input))
     print('max carbon ', np.max(carbon_input))
@@ -32,32 +39,58 @@ if __name__ == '__main__':
     print('maccs output shape:', maccs_fingerprint.shape)
 
     latent_train, latent_test, maccs_train, maccs_test, mol_names_maccs_train, mol_names_maccs_test = train_test_split(
-        latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.8, shuffle=True)
+        latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.95, shuffle=True)
 
     clf = []
     y_pred = []
     if not os.path.exists('./saved_xgboost_models'):
         os.mkdir('./saved_xgboost_models')
         with open('metrics_xgboost.csv', 'w+') as f:
-            f.write('bit,weight,accuracy,f1\n')
-            for bit in range(167):
-                model = xgboost.XGBClassifier(n_estimators=100, max_depth=3)
-                weights = [0.1, 1, 10, 100, 1_000, 10_000]
-                param_grid = dict(scale_pos_weight=weights)
-                cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=1, random_state=1)
-                grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=-1, cv=cv, scoring='f1')
-                grid_result = grid.fit(latent_train, [b[bit] for b in maccs_train])
-                print(f'Best for bit {bit}: {grid_result.best_score_} using {list(grid_result.best_params_.values())[0]}')
-                clf.append(xgboost.XGBClassifier(n_estimators=100, max_depth=3,
-                                                 scale_pos_weight=list(grid_result.best_params_.values())[0]))
-                clf[-1].fit(latent_train, [b[bit] for b in maccs_train])
-                clf[-1].save_model(f'./saved_xgboost_models/xgboost_{bit}.json')
-                y_pred.append(clf[-1].predict(latent_test))
-                bit_accuracy = accuracy_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
-                bit_f1 = f1_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
-                print(f'accuracy for bit {bit} is {bit_accuracy}')
-                print(f'f1 for bit {bit} is {bit_f1}')
-                f.write(f'{bit},{list(grid_result.best_params_.values())[0]},{bit_accuracy},{bit_f1}\n')
+            f.write('bit,count,accuracy,precision,recall,f1,f0.5,g-mean,TPR,FPR,AUC\n')
+            with open(f'./roc.csv', 'w+') as f_roc:
+                for bit in range(167):
+                    print('bit', bit)
+                    scale_pos_bit = np.sqrt(np.sum([b[bit] == 0 for b in maccs_train]) + 1) / (np.sum(
+                        [b[bit] for b in maccs_train]) + 1)
+                    bit_model = xgboost.XGBClassifier(scale_pos_weight=scale_pos_bit, objective='binary:logistic',
+                                                      eval_metric='logloss')
+                    bit_params = [{'n_estimators': [200, 500,1000], 'subsample': [0.7, 0.8, 0.9],
+                                   'max_depth': [3, 5, 8, 15, 20], 'base_score': [0.1, 0.3, 0.5, 0.7, 0.9]}]
+                    bit_scorer = make_scorer(fbeta_score, beta=0.25, zero_division=0.0)
+                    bit_gridsearch = GridSearchCV(bit_model, param_grid=bit_params, scoring=bit_scorer, cv=5)
+                    bit_gridsearch.fit(latent_train, [b[bit] for b in maccs_train])
+                    print(f'AUC for bit {bit}: {bit_gridsearch.best_score_}')
+                    clf.append(xgboost.XGBClassifier(n_estimators=bit_gridsearch.best_params_['n_estimators'],
+                                                     max_depth=bit_gridsearch.best_params_['max_depth'],
+                                                     scale_pos_weight=scale_pos_bit,
+                                                     subsample=bit_gridsearch.best_params_['subsample'],
+                                                     objective='binary:logistic', eval_metric='logloss'))
+                    clf[-1].fit(latent_train, [b[bit] for b in maccs_train])
+                    clf[-1].save_model(f'./saved_xgboost_models/xgboost_{bit}.json')
+                    train_prediction = clf[-1].predict_proba(latent_train)[:, 1]
+                    train_tpr, train_fpr, train_thresholds = roc_curve([b[bit] for b in maccs_train], train_prediction,
+                                                                       drop_intermediate=False)
+                    g_mean = (train_tpr ** 0.25) * ((1 - train_fpr) ** 0.75)
+                    train_threshold = train_thresholds[np.argmax(g_mean)]
+                    prediction_prob = clf[-1].predict_proba(latent_test)[:, 1]
+                    prediction = [p > train_threshold for p in prediction_prob]
+                    y_pred.append(prediction)
+                    bit_count = np.sum([b[bit] for b in maccs_fingerprint])
+                    bit_accuracy = accuracy_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
+                    bit_precision = precision_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
+                    bit_recall = recall_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
+                    bit_f1 = f1_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
+                    bit_f05 = fbeta_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1], beta=0.5)
+                    bit_tpr, bit_fpr, _ = roc_curve([b[bit] for b in maccs_test], prediction_prob,
+                                                    drop_intermediate=False)
+                    g_mean = (bit_tpr ** 0.25) * ((1 - bit_fpr) ** 0.75)
+                    best_tpr = bit_tpr[np.argmax(g_mean)]
+                    best_fpr = bit_fpr[np.argmax(g_mean)]
+                    bit_auc = auc(bit_fpr, bit_tpr)
+                    f_roc.write(f'{bit},best_tpr,{best_tpr},tpr,{concatenate_roc(bit_tpr)}\n')
+                    f_roc.write(f'{bit},best_fpr,{best_fpr},fpr,{concatenate_roc(bit_fpr)}\n')
+                    f.write(f'{bit},{bit_count},{bit_accuracy},{bit_precision},{bit_recall},{bit_f1},{bit_f05},')
+                    f.write(f'{np.max(g_mean)},{best_tpr},{best_fpr},{bit_auc}\n')
     else:
         for bit in range(167):
             model = xgboost.XGBClassifier()

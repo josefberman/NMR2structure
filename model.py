@@ -25,11 +25,14 @@ def encoder_cosine_similarity(y_true, y_pred):
 
 
 def jaccard_index(y_true, y_pred):
-    y_pred = tf.cast(y_pred > 0.5, tf.float32)
-    y_pred = tf.cast(y_pred, tf.int32)
-    intersection = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
-    union = tf.reduce_sum(tf.cast(tf.logical_or(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
-    return intersection / union
+    intersection = np.logical_and(y_true, y_pred)
+    union = np.logical_or(y_true, y_pred)
+    return intersection.sum() / float(union.sum())
+    # y_pred = tf.cast(y_pred > 0.5, tf.float32)
+    # y_pred = tf.cast(y_pred, tf.int32)
+    # intersection = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
+    # union = tf.reduce_sum(tf.cast(tf.logical_or(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
+    # return intersection / union
 
 
 def hamming_distance(y_true, y_pred):

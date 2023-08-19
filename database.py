@@ -2,7 +2,7 @@ import pickle
 
 from rdkit import Chem
 from rdkit import RDLogger
-from rdkit.Chem import MACCSkeys
+from rdkit.Chem import MACCSkeys, AllChem
 import pandas as pd
 import numpy as np
 import re
@@ -28,13 +28,14 @@ def import_database():
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
         mols = [x for x in mols if len(x.GetAtoms()) <= 37]
-        #mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
+        # mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
         # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
         # RDKit molecular and NMR properties
         nmr_df['Molecule'] = mols  # store molecule as RDKit molecule class in dataframe
         nmr_df['Name'] = [x.GetProp('_Name') for x in mols if x is not None]  # store molecule's name in dataframe
         nmr_df['MACCS'] = [maccs_to_list(x) for x in mols if x is not None]  # store MACCS fingerprint in dataframe
+        nmr_df['Morgan'] = [mol_to_morgan(x) for x in mols if x is not None]
         nmr_df['Spectrum 13C'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 13C',
                                               axis=1)  # extract first encountered 13C spectrum
         nmr_df['Spectrum 1H'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 1H',
@@ -112,6 +113,10 @@ def maccs_to_list(molecule):
     return [int(x) for x in fp]
 
 
+def mol_to_morgan(molecule):
+    fpgen = AllChem.GetMorganGenerator(radius=2)
+    return list(fpgen.GetFingerprintAsNumPy(molecule))
+
 def maccs_to_structure(maccs_list: list):
     smarts = ''
     idx = [i for i in range(len(maccs_list)) if maccs_list[i] == 1]
@@ -125,7 +130,7 @@ def maccs_to_substructures(maccs_list: list):
     return [MACCSkeys.smartsPatts[i][0] for i in idx]
 
 
-def visualize_smarts(initials:str, mol_index: int, smarts_index: int, smarts: str):
+def visualize_smarts(initials: str, mol_index: int, smarts_index: int, smarts: str):
     smarts = re.sub(r'%', '%25', smarts)
     smarts = re.sub(r'&', '%26', smarts)
     smarts = re.sub(r'\+', '%2B', smarts)
@@ -174,7 +179,7 @@ def extract_smi(nmr_df_row: pd.Series, spectrum_type: str):
     return_list = []
     for i, j in zip(unique_elements, elements_count):
         return_list.append([float(i[0]), i[1].lower(), j])
-        if i[1] not in list_of_multiplicities:
+        if i[1].lower() not in list_of_multiplicities:
             list_of_multiplicities.append(i[1].lower())
         if j > max_intensity:
             max_intensity = j
@@ -194,9 +199,9 @@ def flatten(list_of_lists):
 def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
     #multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
     intensity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
-    #multiplicity_encoder = BinaryEncoder(return_df=False).fit(list_of_multiplicities)
+    # multiplicity_encoder = BinaryEncoder(return_df=False).fit(list_of_multiplicities)
     multiplicity_encoder = OrdinalEncoder(return_df=False).fit(list_of_multiplicities)
-    #multiplicity_encoder.fit(np.reshape(list_of_multiplicities, (-1, 1)))
+    multiplicity_encoder.fit(np.reshape(list_of_multiplicities, (-1, 1)))
     intensity_encoder.fit(np.reshape(range(1, max_intensity + 1), (-1, 1)))
     embedded_row = []
     embedded_element = []

@@ -1,3 +1,4 @@
+import pandas as pd
 import sklearn.metrics
 
 from model import initialize_model, train_model, predict_model, evaluate_model, encode_spectrum, jaccard_index
@@ -11,6 +12,8 @@ from skopt import BayesSearchCV
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import xgboost
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+import seaborn as sns
 
 
 def concatenate_roc(l: list):
@@ -24,6 +27,8 @@ if __name__ == '__main__':
     nmr_df = import_database()
     proton_input = np.array(nmr_df['embedded 1H'].tolist())
     carbon_input = np.array(nmr_df['embedded 13C'].tolist())
+
+
     # proton_input = proton_input / np.max(proton_input)
     # carbon_input = carbon_input / np.max(carbon_input)
     mol_names_maccs = nmr_df.loc[:, ['Name', 'MACCS']]
@@ -35,17 +40,30 @@ if __name__ == '__main__':
 
     latent_input = encode_spectrum(np.concatenate((proton_input, carbon_input), axis=1))
     print('latent input shape:', latent_input.shape)
+    """
+    tsne = TSNE()
+    tsne = tsne.fit_transform(latent_input, [i[165] for i in nmr_df['MACCS']])
+    temp_df = pd.DataFrame()
+    temp_df['tsne_1'] = tsne[:, 0]
+    temp_df['tsne_2'] = tsne[:, 1]
+    temp_df['target'] = [i[165] for i in nmr_df['MACCS']]
+    plt.figure(figsize=(20, 20))
+    print(tsne)
+    sns.scatterplot(data=temp_df, x='tsne_1', y='tsne_2', hue='target')
+    plt.show()
+    """
 
     maccs_fingerprint = np.array(nmr_df['MACCS'].tolist())
     print('maccs output shape:', maccs_fingerprint.shape)
 
     latent_train, latent_test, maccs_train, maccs_test, mol_names_maccs_train, mol_names_maccs_test = train_test_split(
-        latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.95, shuffle=True)
+        latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.95, shuffle=True, random_state=42)
     latent_train, latent_valid, maccs_train, maccs_valid, mol_names_maccs_train, mol_names_maccs_valid = train_test_split(
-        latent_train, maccs_train, mol_names_maccs_train, train_size=0.8, shuffle=True)
+        latent_train, maccs_train, mol_names_maccs_train, train_size=0.8, shuffle=False, random_state=42)
 
     clf = []
     y_pred = []
+    y_pred_prob = []
     if not os.path.exists('./saved_xgboost_models'):
         os.mkdir('./saved_xgboost_models')
         with open('metrics_xgboost.csv', 'w+') as f:
@@ -54,7 +72,7 @@ if __name__ == '__main__':
                 for bit in range(167):
                     print('bit', bit)
                     scale_pos_bit = np.sqrt(np.count_nonzero([b[bit] == 0 for b in maccs_train]) + 1) / (
-                           np.sum([b[bit] for b in maccs_train]) + 1)
+                            np.sum([b[bit] for b in maccs_train]) + 1)
                     clf.append(
                         xgboost.XGBClassifier(n_estimators=1000, max_depth=10, subsample=1, eval_metric='auc',
                                               scale_pos_weight=scale_pos_bit, objective='binary:logistic'))
@@ -73,6 +91,7 @@ if __name__ == '__main__':
                         else:
                             prediction.append(0)
                     y_pred.append(prediction)
+                    y_pred_prob.append(prediction_prob[:, 1])
                     bit_count = np.sum([b[bit] for b in maccs_fingerprint])
                     bit_accuracy = accuracy_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1])
                     bit_precision = precision_score(y_true=[b[bit] for b in maccs_test], y_pred=y_pred[-1],
@@ -103,18 +122,20 @@ if __name__ == '__main__':
             model.load_model(f'./saved_xgboost_models/xgboost_{bit}.json')
             clf.append(model)
             y_pred.append(clf[-1].predict(latent_test))
+            y_pred_prob.append(clf[-1].predict_proba(latent_test)[:, 1])
     y_pred_array = np.array(y_pred).reshape(167, -1).T
+    y_pred_prob_array = np.array(y_pred_prob).reshape(167, -1).T
     print('pred shape:', y_pred_array.shape)
     for i in range(5):
         print('test:')
         print(mol_names_maccs_test['Name'].iloc[i])
         print(maccs_to_substructures(mol_names_maccs_test['MACCS'].iloc[i]))
         for smarts_index, smarts in enumerate(maccs_to_substructures(mol_names_maccs_test['MACCS'].iloc[i])):
-            visualize_smarts('gt', i, smarts_index, smarts)
+            visualize_smarts('gt', i, smarts_index, smarts, y_pred_prob_array[i, smarts_index])
         print('predicted:')
         print(maccs_to_substructures(y_pred_array[i]))
         for smarts_index, smarts in enumerate(maccs_to_substructures(y_pred_array[i])):
-            visualize_smarts('pred', i, smarts_index, smarts)
+            visualize_smarts('pred', i, smarts_index, smarts, y_pred_prob_array[i, smarts_index])
         print('\n')
     print('done')
 

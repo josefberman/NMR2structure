@@ -130,7 +130,7 @@ def maccs_to_substructures(maccs_list: list):
     return [MACCSkeys.smartsPatts[i][0] for i in idx]
 
 
-def visualize_smarts(initials: str, mol_index: int, smarts_index: int, smarts: str):
+def visualize_smarts(initials: str, mol_index: int, smarts_index: int, smarts: str, prob: float):
     smarts = re.sub(r'%', '%25', smarts)
     smarts = re.sub(r'&', '%26', smarts)
     smarts = re.sub(r'\+', '%2B', smarts)
@@ -141,6 +141,8 @@ def visualize_smarts(initials: str, mol_index: int, smarts_index: int, smarts: s
     os.makedirs(f'./substructures/mol{mol_index}', exist_ok=True)
     with open(f'./substructures/mol{mol_index}/{initials}_{smarts_index}.jpg', 'wb') as f:
         f.write(res.content)
+    with open(f'./substructures/mol{mol_index}/prob.csv', 'a+') as f:
+        f.write(f'{mol_index},{initials},{smarts_index},{prob}\n')
 
 
 def clean_spectra(nmr_df_row: pd.Series):

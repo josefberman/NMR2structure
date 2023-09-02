@@ -2,6 +2,7 @@ from datetime import datetime
 
 import keras
 import numpy as np
+import rdkit
 import tensorflow as tf
 from keras.callbacks import TensorBoard, EarlyStopping, ReduceLROnPlateau
 from keras.constraints import Constraint
@@ -143,3 +144,15 @@ def predict_model(model: keras.Model, input_array: np.array):
 
 def evaluate_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np.array):
     return model.evaluate(x=input_array, y=maccs_fingerprint)
+
+
+def predict_molecule(model: list):
+    """
+    Predicts MACCS keys for molecule with probabilities
+    :param model: list of XGBoost models which predict the MACCS keys
+    :param mol: molecule on which the prediction is performed
+    :return: tuple of the form (predicted MACCCS leys, probabilities)
+    """
+    for m in model:
+        proba = m.predict_proba()
+

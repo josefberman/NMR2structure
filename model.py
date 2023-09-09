@@ -42,14 +42,6 @@ def hamming_distance(y_true, y_pred):
     return tf.reduce_mean(tf.cast(tf.not_equal(y_true, y_pred), tf.float32))
 
 
-class ZeroConstraint(Constraint):
-    def __init__(self, mask):
-        self.mask = tf.convert_to_tensor(mask, dtype=tf.float32)
-
-    def __call__(self, w):
-        return w * self.mask
-
-
 def encode_spectrum(input_array: np.array):
     # Encoder block
     input_train = input_array[:int(input_array.shape[0] * 0.9)]
@@ -87,72 +79,3 @@ def encode_spectrum(input_array: np.array):
     score = autoencoder.evaluate(input_test, input_test)
     print('Test loss: ', score)
     return encoder.predict(input_array)
-
-
-def create_kernel_constraint(kernel_size: int, kernel_length: int, num_filters: int):
-    mask = np.zeros((kernel_size, kernel_length, 1, num_filters))
-    mask[0, :, :, :] = 1  # sets the first row in mask to 1, in each filter
-    mask[-1, :, :, :] = 1  # sets the last row in mask to 1, in each filter
-    return mask
-
-
-def initialize_model(input_size: int, fingerprint_length: int = 167):
-    input_layer = Input(shape=(input_size,))
-    dense_layer = Dense(units=input_size, activation='relu')(input_layer)
-    dense_layer = Dense(units=input_size, activation='relu')(dense_layer)
-    dense_layer = Dense(units=input_size, activation='relu')(dense_layer)
-    output_layer = Dense(units=fingerprint_length, activation='sigmoid')(dense_layer)
-    model = keras.Model(inputs=input_layer, outputs=output_layer)
-    model.compile(optimizer=Adam(learning_rate=1e-6), loss=Huber(), metrics=[hamming_distance])
-    # print(model.summary())
-    return model
-
-
-def train_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np.array):
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    tensorboard_callback = TensorBoard(log_dir=f'./logs/{timestamp}')
-    early_stopping_callback = EarlyStopping(patience=5, restore_best_weights=True)
-    reduce_lr_callback = ReduceLROnPlateau(patience=3)
-    metric_per_fold = []
-    loss_per_fold = []
-    kfold = KFold(n_splits=5, shuffle=True)
-    for i, (k_train, k_val) in enumerate(kfold.split(input_array, maccs_fingerprint)):
-        k_model = initialize_model(input_size=input_array.shape[1])
-        tensorboard_callback_fold = TensorBoard(log_dir=f'./logs/{timestamp}/fold_{i + 1}')
-        print(f'--- Training fold {i + 1}')
-        k_model.fit(input_array[k_train], maccs_fingerprint[k_train],
-                    validation_data=(input_array[k_val], maccs_fingerprint[k_val]), batch_size=32, epochs=1000,
-                    callbacks=[early_stopping_callback, reduce_lr_callback, tensorboard_callback_fold], verbose=1)
-        scores = k_model.evaluate(input_array[k_val], maccs_fingerprint[k_val], verbose=0)
-        print(
-            f'Score for fold {i}: {k_model.metrics_names[0]} of {scores[0]}; {k_model.metrics_names[1]} of {scores[1]}')
-        metric_per_fold.append(scores[1])
-        loss_per_fold.append(scores[0])
-    print('Hamming Distance CV:')
-    print(metric_per_fold)
-    print('Loss CV:')
-    print(loss_per_fold)
-    model.fit(x=input_array, y=maccs_fingerprint, batch_size=32, epochs=1000,
-              callbacks=[tensorboard_callback, early_stopping_callback, reduce_lr_callback], validation_split=0.15,
-              shuffle=True)
-    return model
-
-
-def predict_model(model: keras.Model, input_array: np.array):
-    return model.predict(x=input_array)
-
-
-def evaluate_model(model: keras.Model, input_array: np.array, maccs_fingerprint: np.array):
-    return model.evaluate(x=input_array, y=maccs_fingerprint)
-
-
-def predict_molecule(model: list):
-    """
-    Predicts MACCS keys for molecule with probabilities
-    :param model: list of XGBoost models which predict the MACCS keys
-    :param mol: molecule on which the prediction is performed
-    :return: tuple of the form (predicted MACCCS leys, probabilities)
-    """
-    for m in model:
-        proba = m.predict_proba()
-

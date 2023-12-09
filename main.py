@@ -1,19 +1,18 @@
 import pandas as pd
 import sklearn.metrics
 
-from model import initialize_model, train_model, predict_model, evaluate_model, encode_spectrum, jaccard_index
-from database import maccs_to_structure, maccs_to_substructures, import_database, visualize_smarts
-from sklearn.model_selection import train_test_split, cross_val_score, RepeatedStratifiedKFold, GridSearchCV
+from model import encode_spectrum, cv_xgboost_model, create_xgboost_model, predict_bits_from_xgboost
+from database import import_database
+from sklearn.model_selection import train_test_split
 import numpy as np
 import os
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, fbeta_score, roc_curve, auc, \
     make_scorer
-from skopt import BayesSearchCV
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import xgboost
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-import seaborn as sns
+import plotly.express as px
 
 
 def concatenate_roc(l: list):
@@ -24,14 +23,13 @@ if __name__ == '__main__':
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
     os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 
-    nmr_df = import_database()
+    nmr_df = import_database('all')
     proton_input = np.array(nmr_df['embedded 1H'].tolist())
     carbon_input = np.array(nmr_df['embedded 13C'].tolist())
 
-
     # proton_input = proton_input / np.max(proton_input)
     # carbon_input = carbon_input / np.max(carbon_input)
-    mol_names_maccs = nmr_df.loc[:, ['Name', 'MACCS']]
+    mol_names_maccs = nmr_df.loc[:, ['Name', 'MACCS']].reset_index(drop=True)
     print('max proton ', np.max(proton_input))
     print('max carbon ', np.max(carbon_input))
 
@@ -39,28 +37,44 @@ if __name__ == '__main__':
     print('carbon input shape:', carbon_input.shape)
 
     latent_input = encode_spectrum(np.concatenate((proton_input, carbon_input), axis=1))
-    print('latent input shape:', latent_input.shape)
+
     """
-    tsne = TSNE()
-    tsne = tsne.fit_transform(latent_input, [i[165] for i in nmr_df['MACCS']])
-    temp_df = pd.DataFrame()
-    temp_df['tsne_1'] = tsne[:, 0]
-    temp_df['tsne_2'] = tsne[:, 1]
-    temp_df['target'] = [i[165] for i in nmr_df['MACCS']]
-    plt.figure(figsize=(20, 20))
-    print(tsne)
-    sns.scatterplot(data=temp_df, x='tsne_1', y='tsne_2', hue='target')
+    tsne = TSNE(n_components=2)
+    tsne = tsne.fit_transform(latent_input)
+    plt.figure(figsize=(15,15))
+    plt.scatter(tsne[:, 0], tsne[:, 1], c='#9b5de5')
+    plt.xlabel('t-SNE component 1')
+    plt.ylabel('t-SNE component 2')
     plt.show()
     """
 
     maccs_fingerprint = np.array(nmr_df['MACCS'].tolist())
+
+    # latent_input = np.delete(latent_input, np.unique(np.where(maccs_fingerprint[:, :41] == 1)), axis=0)
+    # mol_names_maccs = mol_names_maccs.drop(np.unique(np.where(maccs_fingerprint[:, :41] == 1)))
+    # maccs_fingerprint = np.delete(maccs_fingerprint, np.unique(np.where(maccs_fingerprint[:, :41] == 1)), axis=0)
+    print('latent input shape:', latent_input.shape)
     print('maccs output shape:', maccs_fingerprint.shape)
 
-    latent_train, latent_test, maccs_train, maccs_test, mol_names_maccs_train, mol_names_maccs_test = train_test_split(
-        latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.95, shuffle=True, random_state=42)
-    latent_train, latent_valid, maccs_train, maccs_valid, mol_names_maccs_train, mol_names_maccs_valid = train_test_split(
-        latent_train, maccs_train, mol_names_maccs_train, train_size=0.8, shuffle=False, random_state=42)
+    # with open('num_bits_in_ds.csv', 'w+') as f:
+    #     f.write('bit,on count\n')
+    #     for bit in range(167):
+    #         f.write(f"{bit},{np.sum([b[bit] for b in maccs_fingerprint])}\n")
 
+    latent_train, latent_test, maccs_train, maccs_test, mol_names_maccs_train, mol_names_maccs_test = train_test_split(
+        latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.90, shuffle=True, random_state=42)
+    # latent_train, latent_valid, maccs_train, maccs_valid, mol_names_maccs_train, mol_names_maccs_valid = train_test_split(
+    #     latent_train, maccs_train, mol_names_maccs_train, train_size=0.8, shuffle=False, random_state=42)
+
+    # cv_xgboost_model(num_cv_folds=10, latent_train=latent_train, maccs_train=maccs_train)
+    create_xgboost_model(latent_train=latent_train, maccs_train=maccs_train, tpr_fpr_ratio=0.5)
+    predicted_test = []
+    for item in latent_test:
+        predicted_test.append(predict_bits_from_xgboost(item))
+    print(predicted_test)
+    print('done')
+
+    """
     clf = []
     y_pred = []
     y_pred_prob = []
@@ -74,7 +88,7 @@ if __name__ == '__main__':
                     scale_pos_bit = np.sqrt(np.count_nonzero([b[bit] == 0 for b in maccs_train]) + 1) / (
                             np.sum([b[bit] for b in maccs_train]) + 1)
                     clf.append(
-                        xgboost.XGBClassifier(n_estimators=1000, max_depth=10, subsample=1, eval_metric='auc',
+                        xgboost.XGBClassifier(n_estimators=1000, max_depth=30, subsample=1, eval_metric='auc',
                                               scale_pos_weight=scale_pos_bit, objective='binary:logistic'))
                     clf[-1].fit(latent_train, [b[bit] for b in maccs_train])
                     clf[-1].save_model(f'./saved_xgboost_models/xgboost_{bit}.json')
@@ -138,8 +152,9 @@ if __name__ == '__main__':
             visualize_smarts('pred', i, smarts_index, smarts, y_pred_prob_array[i, smarts_index])
         print('\n')
     print('done')
+    """
 
-"""
+    """
     with open('maccs.csv', 'w+') as f:
         for maccs in maccs_fingerprint:
             for i in maccs:
@@ -188,4 +203,4 @@ if __name__ == '__main__':
 
     model.save('saved_model/saved.model.h5')
     model.save('saved_model/')
-"""
+    """

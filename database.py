@@ -18,18 +18,17 @@ list_of_multiplicities = []
 max_intensity = 0
 
 
-def import_database():
+def import_database(dataset_type: str = 'all'):
     """
-    Loads a SD file containing molecular properties (including NMR spectra)
-    :return: List of the molecules from the SD file
+    Imports the nmrshiftdb2withsignals.sd database by dataset type required as a dataframe
+    :param dataset_type: type of dataset: 'all' for all database, 'significant' for MACCS bits over 20, 'CHNO' for \
+     molecules containing C,H,N,O atoms. 'carbohydrates' for carbohydrates.
+    :return: Structured dataframe from nmrshiftdb2withsignals.sd database
     """
     RDLogger.DisableLog('rdApp.*')  # disable RDKit warnings
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
-        mols = [x for x in mols if len(x.GetAtoms()) <= 37]
-        # mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates
-        # all molecules with corresponding NMR, and add explicit protons
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
         # RDKit molecular and NMR properties
         nmr_df['Molecule'] = mols  # store molecule as RDKit molecule class in dataframe
@@ -40,7 +39,8 @@ def import_database():
                                               axis=1)  # extract first encountered 13C spectrum
         nmr_df['Spectrum 1H'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 1H',
                                              axis=1)  # extract first encountered 1H spectrum
-        nmr_df = nmr_df.iloc[:, -5:]  # leave only necessary columns
+        nmr_df = nmr_df.iloc[:, -6:]  # leave only necessary columns
+        print(nmr_df.columns)
         nmr_df = nmr_df[(nmr_df['Spectrum 13C'].notnull()) & (nmr_df['Spectrum 1H'].notnull())]  # leave only molecules
         # with both spectra
         nmr_df['Spectrum 13C'] = nmr_df.apply(extract_smi, spectrum_type='Spectrum 13C',
@@ -51,6 +51,20 @@ def import_database():
         # into lists (input for model)
         nmr_df['embedded 13C'] = nmr_df.apply(peak_embedding, spectrum_type='Spectrum 13C', axis=1)
         nmr_df['embedded 1H'] = nmr_df.apply(peak_embedding, spectrum_type='Spectrum 1H', axis=1)
+
+        nmr_df = nmr_df[nmr_df.apply(lambda x: len(x['Molecule'].GetAtoms()) <= 37, axis=1)]
+        # mols = [x for x in mols if len(x.GetAtoms()) <= 37]
+        if dataset_type == 'significant':
+            nmr_df = nmr_df[nmr_df.apply(lambda x: is_significant(x['MACCS']), axis=1)]
+            # mols = [x for x in mols if]  # limit database to structures only above MACCS bit 20
+        elif dataset_type == 'CHNO':
+            nmr_df = nmr_df[nmr_df.apply(lambda x: is_CHNO(x['Molecule']), axis=1)]
+            # mols = [x for x in mols if is_CHNO(x)]  # limit database to only H,C,O,N
+        elif dataset_type == 'carbohydates':
+            nmr_df = nmr_df[nmr_df.apply(lambda x: is_carbohydrate(x['Molecule']), axis=1)]
+            # mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates (C,H,O)
+        # all molecules with corresponding NMR, and add explicit protons
+        print('Length of df:', len(nmr_df))
         write_db_to_pickle(nmr_df)
     return nmr_df
 
@@ -95,10 +109,23 @@ def extract_spectrum(nmr_df_row: pd.Series, spectrum_type: str):
         return temp_row_with_multiplicity[0]
 
 
+def is_CHNO(mol):
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() not in [1, 6, 7, 8]:
+            return False
+    return True
+
+
 def is_carbohydrate(mol):
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() not in [1, 6, 8]:
             return False
+    return True
+
+
+def is_significant(MACCS_keys: list):
+    if sum(MACCS_keys[:41]) > 0:
+        return False
     return True
 
 
@@ -116,6 +143,7 @@ def maccs_to_list(molecule):
 def mol_to_morgan(molecule):
     fpgen = AllChem.GetMorganGenerator(radius=2)
     return list(fpgen.GetFingerprintAsNumPy(molecule))
+
 
 def maccs_to_structure(maccs_list: list):
     smarts = ''
@@ -199,7 +227,7 @@ def flatten(list_of_lists):
 
 
 def peak_embedding(nmr_df_row: pd.Series, spectrum_type: str):
-    #multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
+    # multiplicity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
     intensity_encoder = OneHotEncoder(sparse_output=False, dtype=int)
     # multiplicity_encoder = BinaryEncoder(return_df=False).fit(list_of_multiplicities)
     multiplicity_encoder = OrdinalEncoder(return_df=False).fit(list_of_multiplicities)

@@ -60,7 +60,7 @@ def import_database(dataset_type: str = 'all'):
         elif dataset_type == 'CHNO':
             nmr_df = nmr_df[nmr_df.apply(lambda x: is_CHNO(x['Molecule']), axis=1)]
             # mols = [x for x in mols if is_CHNO(x)]  # limit database to only H,C,O,N
-        elif dataset_type == 'carbohydates':
+        elif dataset_type == 'carbohydrates':
             nmr_df = nmr_df[nmr_df.apply(lambda x: is_carbohydrate(x['Molecule']), axis=1)]
             # mols = [x for x in mols if is_carbohydrate(x)]  # limit database to only carbohydrates (C,H,O)
         # all molecules with corresponding NMR, and add explicit protons
@@ -158,19 +158,17 @@ def maccs_to_substructures(maccs_list: list):
     return [MACCSkeys.smartsPatts[i][0] for i in idx]
 
 
-def visualize_smarts(initials: str, mol_index: int, smarts_index: int, smarts: str, prob: float):
-    smarts = re.sub(r'%', '%25', smarts)
-    smarts = re.sub(r'&', '%26', smarts)
-    smarts = re.sub(r'\+', '%2B', smarts)
-    smarts = re.sub(r'#', '%23', smarts)
-    smarts = re.sub(r';', '%3B', smarts)
-    url = 'https://smarts.plus/smartsview/download_rest?smarts=' + smarts
-    res = requests.get(url)
-    os.makedirs(f'./substructures/mol{mol_index}', exist_ok=True)
-    with open(f'./substructures/mol{mol_index}/{initials}_{smarts_index}.jpg', 'wb') as f:
-        f.write(res.content)
-    with open(f'./substructures/mol{mol_index}/prob.csv', 'a+') as f:
-        f.write(f'{mol_index},{initials},{smarts_index},{prob}\n')
+def visualize_smarts(dir_path: str, file_name:str, smarts: list):
+    for index, smarts_item in enumerate(smarts):
+        smarts_item = re.sub(r'%', '%25', smarts_item)
+        smarts_item = re.sub(r'&', '%26', smarts_item)
+        smarts_item = re.sub(r'\+', '%2B', smarts_item)
+        smarts_item = re.sub(r'#', '%23', smarts_item)
+        smarts_item = re.sub(r';', '%3B', smarts_item)
+        url = 'https://smarts.plus/smartsview/download_rest?smarts=' + smarts_item
+        res = requests.get(url)
+        with open(f'{dir_path}/{file_name}_sub_{index}.jpg', 'wb') as f:
+            f.write(res.content)
 
 
 def clean_spectra(nmr_df_row: pd.Series):

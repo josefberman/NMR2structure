@@ -24,7 +24,10 @@ if __name__ == '__main__':
     print('proton input shape:', proton_input.shape)
     print('carbon input shape:', carbon_input.shape)
 
-    latent_input = encode_spectrum(np.concatenate((proton_input, carbon_input), axis=1))
+    # latent_input = encode_spectrum(np.concatenate((proton_input, carbon_input), axis=1))
+
+    latent_input = np.concatenate((proton_input, carbon_input), axis=1)
+    latent_input = latent_input.reshape(latent_input.shape[0], -1)
 
     maccs_fingerprint = np.array(nmr_df['MACCS'].tolist())
 
@@ -33,19 +36,20 @@ if __name__ == '__main__':
 
     latent_train, latent_test, maccs_train, maccs_test, mol_names_maccs_train, mol_names_maccs_test = train_test_split(
         latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.90, shuffle=True, random_state=42)
-    # cv_xgboost_model(latent_train=latent_train, maccs_train=maccs_train, tpr_fpr_ratio=0.25)
+    cv_xgboost_model(latent=latent_train, maccs=maccs_train, tpr_fpr_ratio=0.25)
     create_xgboost_model(latent_train=latent_train, maccs_train=maccs_train)
 
+    tested_molecules = 30
     predicted_test = []
     for index, item in enumerate(latent_test):
-        if index < 10:
+        if index < tested_molecules:
             predicted_test.append(predict_bits_from_xgboost(item))
         else:
             predicted_test.append(None)
     mol_names_maccs_test['predicted'] = predicted_test
     mol_names_maccs_test.reset_index(inplace=True, drop=True)
 
-    for index, item in mol_names_maccs_test[:10].iterrows():
+    for index, item in mol_names_maccs_test[:tested_molecules].iterrows():
         os.makedirs(name=f'./test/test_{index}/ground_truth/', exist_ok=True)
         gt_smarts = maccs_to_substructures(item['MACCS'])
         print(f"Molecule {index}, {sum(item['MACCS'])} substructures found in ground truth")

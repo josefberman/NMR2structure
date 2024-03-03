@@ -18,6 +18,7 @@ import csv
 from sklearn.model_selection import train_test_split
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer
+from sklearn.decomposition import PCA
 
 
 def encoder_cosine_similarity(y_true, y_pred):
@@ -132,12 +133,14 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
         os.mkdir('./saved_xgboost_models')
     warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
     fbeta_df = pd.DataFrame()
+    f2_df = pd.DataFrame()
     auc_df = pd.DataFrame()
     g_mean_df = pd.DataFrame()
     precision_df = pd.DataFrame()
     recall_df = pd.DataFrame()
     thresholds_list = []
     fbeta_scores = {}
+    f2_scores = {}
     auc_scores = {}
     g_mean_scores = {}
     precision_scores = {}
@@ -157,6 +160,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                 precision_scores[bit] = 1
                 recall_scores[bit] = 1
                 fbeta_scores[bit] = 1
+                f2_scores[bit] = 1
                 g_mean_scores[bit] = 1
             elif np.sum([b[bit] for b in maccs]) <= 0.01 * np.count_nonzero([b[bit] == 0 for b in maccs]):
                 # very imbalanced classes towards negative class
@@ -166,6 +170,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                 precision_scores[bit] = 1
                 recall_scores[bit] = 1
                 fbeta_scores[bit] = 1
+                f2_scores[bit] = 1
                 g_mean_scores[bit] = 1
             else:
                 scale_pos_bit = (np.count_nonzero([b[bit] == 0 for b in maccs]) + 1) / (
@@ -200,6 +205,8 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                         prediction.append(0)
                 fbeta_scores[bit] = fbeta_score([b[bit] for b in maccs_valid], prediction, beta=0.5,
                                                 zero_division=1.0)
+                f2_scores[bit] = fbeta_score([b[bit] for b in maccs_valid], prediction, beta=2,
+                                                zero_division=1.0)
                 try:
                     # auc_scores[bit] = roc_auc_score([b[bit] for b in maccs_valid],
                     #                                clf.predict_proba(latent_valid)[:, 1])
@@ -214,6 +221,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                 recall_scores[bit] = recall_score([b[bit] for b in maccs_valid], prediction, zero_division=1.0)
                 thresholds_list.append(validation_threshold)
         fbeta_df['f_beta'] = fbeta_scores
+        f2_df['f_2'] = f2_scores
         auc_df['AUC'] = auc_scores
         g_mean_df['g_mean'] = g_mean_scores
         precision_df['precision'] = precision_scores
@@ -221,6 +229,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
     with pd.ExcelWriter('./saved_xgboost_models/scores.xlsx', engine='openpyxl', mode='w') as writer:
         fbeta_df.to_excel(writer, sheet_name='fbeta', header=True, index=True)
     with pd.ExcelWriter('./saved_xgboost_models/scores.xlsx', engine='openpyxl', mode='a') as writer:
+        f2_df.to_excel(writer, sheet_name='f_2', header=True, index=True)
         auc_df.to_excel(writer, sheet_name='auc', header=True, index=True)
         g_mean_df.to_excel(writer, sheet_name='g_mean', header=True, index=True)
         precision_df.to_excel(writer, sheet_name='precision', header=True, index=True)

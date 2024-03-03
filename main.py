@@ -13,7 +13,7 @@ if __name__ == '__main__':
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
     os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 
-    nmr_df = import_database('carbohydrates')
+    nmr_df = import_database('significant')
     proton_input = np.array(nmr_df['embedded 1H'].tolist())
     carbon_input = np.array(nmr_df['embedded 13C'].tolist())
 

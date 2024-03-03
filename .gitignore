@@ -1,1 +1,21 @@
 /database/
+/chon final/
+/encoder_logs/
+/logs/
+/metrics/
+/test_all_database/
+/test_significant/
+/pca.jpg
+/pp.csv
+/roc.csv
+/test.py
+/maccs.xlsx
+/maccs.csv
+/fbeta_scores.csv
+/cv_scores.xlsx
+/auc_scores.csv
+/atoms_counts.csv
+/metrics_xgboost.csv
+/metrics_xgboost.xlsx
+/carbohydrates final/
+/significant final/

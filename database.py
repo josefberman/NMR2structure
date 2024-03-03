@@ -25,6 +25,8 @@ def import_database(dataset_type: str = 'all'):
      molecules containing C,H,N,O atoms. 'carbohydrates' for carbohydrates.
     :return: Structured dataframe from nmrshiftdb2withsignals.sd database
     """
+    if not os.path.exists('./database/'):
+        os.mkdir('./database/')
     RDLogger.DisableLog('rdApp.*')  # disable RDKit warnings
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
@@ -158,7 +160,7 @@ def maccs_to_substructures(maccs_list: list):
     return [MACCSkeys.smartsPatts[i][0] for i in idx]
 
 
-def visualize_smarts(dir_path: str, file_name:str, smarts: list):
+def visualize_smarts(dir_path: str, file_name: str, smarts: list):
     for index, smarts_item in enumerate(smarts):
         smarts_item = re.sub(r'%', '%25', smarts_item)
         smarts_item = re.sub(r'&', '%26', smarts_item)

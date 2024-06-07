@@ -31,17 +31,24 @@ def import_database(dataset_type: str = 'all'):
     nmr_df = read_db_from_pickle()  # try reading stored dataframe if exists
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
+        mols = [x for x in mols if x is not None]
+        mols = [x for x in mols if len(x.GetAtoms()) <= 20] # for checking dependency of model to number of atoms
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
         # RDKit molecular and NMR properties
         nmr_df['Molecule'] = mols  # store molecule as RDKit molecule class in dataframe
-        nmr_df['Name'] = [x.GetProp('_Name') for x in mols if x is not None]  # store molecule's name in dataframe
-        nmr_df['MACCS'] = [maccs_to_list(x) for x in mols if x is not None]  # store MACCS fingerprint in dataframe
-        nmr_df['Morgan'] = [mol_to_morgan(x) for x in mols if x is not None]
+        nmr_df['Name'] = [x.GetProp('_Name') for x in mols]  # store molecule's name in dataframe
+        nmr_df['MACCS'] = [maccs_to_list(x) for x in mols]  # store MACCS fingerprint in dataframe
+        nmr_df['Morgan'] = [mol_to_morgan(x) for x in mols]
         nmr_df['Spectrum 13C'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 13C',
                                               axis=1)  # extract first encountered 13C spectrum
         nmr_df['Spectrum 1H'] = nmr_df.apply(extract_spectrum, spectrum_type='Spectrum 1H',
                                              axis=1)  # extract first encountered 1H spectrum
-        nmr_df = nmr_df.iloc[:, -6:]  # leave only necessary columns
+        nmr_df['SMILES'] = [Chem.MolToSmiles(x, canonical=True) for x in mols]
+        print('length of DB before dedup:',len(nmr_df))
+        nmr_df.drop_duplicates(subset=['SMILES'], inplace=True)
+        print('length of DB after dedup:', len(nmr_df))
+
+        nmr_df = nmr_df.iloc[:, -7:-1]  # leave only necessary columns
         print(nmr_df.columns)
         nmr_df = nmr_df[(nmr_df['Spectrum 13C'].notnull()) & (nmr_df['Spectrum 1H'].notnull())]  # leave only molecules
         # with both spectra

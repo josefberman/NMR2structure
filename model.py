@@ -9,7 +9,7 @@ from keras.optimizers import Adam
 import os
 import xgboost
 from sklearn.model_selection import KFold
-from sklearn.metrics import roc_curve, accuracy_score, recall_score, precision_score, f1_score, fbeta_score, roc_curve, \
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, fbeta_score, roc_curve, \
     roc_auc_score, make_scorer, log_loss
 import matplotlib.pyplot as plt
 import warnings
@@ -181,7 +181,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                                      'max_depth': Integer(10, 1000, 'log-uniform'),
                                      'subsample': Real(0.6, 1, 'uniform'),
                                      'max_delta_step': Real(0, 100, 'uniform')}, n_iter=100, cv=5,
-                                    verbose=1, refit=True, scoring=make_scorer(roc_auc_score, labels=[0, 1]))
+                                    verbose=1, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
                 opt.fit(latent_train, [b[bit] for b in maccs_train])
                 clf = opt.best_estimator_
                 f.write(f'{bit},')

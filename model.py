@@ -82,28 +82,6 @@ def encode_spectrum(input_array: np.array):
     return encoder.predict(input_array)
 
 
-def create_xgboost_model(latent_train, maccs_train):
-    warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
-    clf = []
-    # if not os.path.exists('./saved_xgboost_models'):
-    #     os.mkdir('./saved_xgboost_models')
-    best_params = pd.read_csv('./saved_xgboost_models/best_params.csv', header=0,
-                              dtype={'Bit': 'int64', 'max_delta_step': 'float64', 'n_estimators': 'int64',
-                                     'subsample': 'float64', 'AUC': 'float64'}, index_col='Bit')
-    for bit in best_params.index:
-        scale_pos_bit = (np.count_nonzero([b[bit] == 0 for b in maccs_train]) + 1) / (
-                np.sum([b[bit] for b in maccs_train]) + 1)
-        clf.append(
-            xgboost.XGBClassifier(n_estimators=best_params.loc[bit, 'n_estimators'],
-                                  max_depth=best_params.loc[bit, 'max_depth'],
-                                  subsample=best_params.loc[bit, 'subsample'], eval_metric='auc',
-                                  scale_pos_weight=scale_pos_bit, objective='binary:logistic',
-                                  max_delta_step=best_params.loc[bit, 'max_delta_step']))
-        clf[-1].fit(latent_train, [b[bit] for b in maccs_train])
-        clf[-1].save_model(f'./saved_xgboost_models/xgboost_{bit}.json')
-    return clf
-
-
 def predict_bits_from_xgboost(latent_sample):
     with open('./saved_xgboost_models/thresholds.csv', 'r') as thr_f:
         thresholds = list(csv.reader(thr_f, delimiter=','))[0]
@@ -128,23 +106,12 @@ def predict_bits_from_xgboost(latent_sample):
     return prediction
 
 
-def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
+def create_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
+    # warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
+    clf_list = []
     if not os.path.exists('./saved_xgboost_models'):
         os.mkdir('./saved_xgboost_models')
-    warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
-    fbeta_df = pd.DataFrame()
-    f2_df = pd.DataFrame()
-    auc_df = pd.DataFrame()
-    g_mean_df = pd.DataFrame()
-    precision_df = pd.DataFrame()
-    recall_df = pd.DataFrame()
     thresholds_list = []
-    fbeta_scores = {}
-    f2_scores = {}
-    auc_scores = {}
-    g_mean_scores = {}
-    precision_scores = {}
-    recall_scores = {}
     latent_train, latent_valid, maccs_train, maccs_valid = train_test_split(latent, maccs, test_size=0.2,
                                                                             random_state=42)
     with open('./saved_xgboost_models/best_params.csv', 'w') as f:
@@ -156,22 +123,10 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                 # very imbalanced classes towards positive class
                 prediction.append(1)
                 thresholds_list.append(0)
-                auc_scores[bit] = 1
-                precision_scores[bit] = 1
-                recall_scores[bit] = 1
-                fbeta_scores[bit] = 1
-                f2_scores[bit] = 1
-                g_mean_scores[bit] = 1
             elif np.sum([b[bit] for b in maccs]) <= 0.01 * np.count_nonzero([b[bit] == 0 for b in maccs]):
                 # very imbalanced classes towards negative class
                 prediction.append(0)
                 thresholds_list.append(np.inf)
-                auc_scores[bit] = 1
-                precision_scores[bit] = 1
-                recall_scores[bit] = 1
-                fbeta_scores[bit] = 1
-                f2_scores[bit] = 1
-                g_mean_scores[bit] = 1
             else:
                 scale_pos_bit = (np.count_nonzero([b[bit] == 0 for b in maccs]) + 1) / (
                         np.sum([b[bit] for b in maccs]) + 1)
@@ -181,7 +136,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                                      'max_depth': Integer(10, 1000, 'log-uniform'),
                                      'subsample': Real(0.6, 1, 'uniform'),
                                      'max_delta_step': Real(0, 100, 'uniform')}, n_iter=100, cv=5,
-                                    verbose=1, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
+                                    verbose=0, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
                 opt.fit(latent_train, [b[bit] for b in maccs_train])
                 clf = opt.best_estimator_
                 f.write(f'{bit},')
@@ -203,42 +158,120 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                         prediction.append(1)
                     else:
                         prediction.append(0)
-                fbeta_scores[bit] = fbeta_score([b[bit] for b in maccs_valid], prediction, beta=0.5,
-                                                zero_division=1.0)
-                f2_scores[bit] = fbeta_score([b[bit] for b in maccs_valid], prediction, beta=2,
+                thresholds_list.append(validation_threshold)
+    best_params = pd.read_csv('./saved_xgboost_models/best_params.csv', header=0,
+                              dtype={'Bit': 'int64', 'max_delta_step': 'float64', 'n_estimators': 'int64',
+                                     'subsample': 'float64', 'AUC': 'float64'}, index_col='Bit')
+    for bit in best_params.index:
+        scale_pos_bit = (np.count_nonzero([b[bit] == 0 for b in maccs]) + 1) / (
+                np.sum([b[bit] for b in maccs]) + 1)
+        clf_list.append(
+            xgboost.XGBClassifier(n_estimators=best_params.loc[bit, 'n_estimators'],
+                                  max_depth=best_params.loc[bit, 'max_depth'],
+                                  subsample=best_params.loc[bit, 'subsample'], eval_metric='auc',
+                                  scale_pos_weight=scale_pos_bit, objective='binary:logistic',
+                                  max_delta_step=best_params.loc[bit, 'max_delta_step']))
+        clf_list[-1].fit(latent, [b[bit] for b in maccs])
+        clf_list[-1].save_model(f'./saved_xgboost_models/xgboost_{bit}.json')
+    with open('./saved_xgboost_models/thresholds.csv', 'w') as thr_f:
+        for threshold in thresholds_list:
+            thr_f.write(f'{threshold},')
+    return clf_list
+
+
+def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
+    if not os.path.exists('./saved_xgboost_models'):
+        os.mkdir('./saved_xgboost_models')
+    # warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
+    fbeta_df = pd.DataFrame()
+    auc_df = pd.DataFrame()
+    g_mean_df = pd.DataFrame()
+    precision_df = pd.DataFrame()
+    recall_df = pd.DataFrame()
+    thresholds_list = []
+    fbeta_scores = {}
+    auc_scores = {}
+    g_mean_scores = {}
+    precision_scores = {}
+    recall_scores = {}
+    kf = KFold(n_splits=5, random_state=42, shuffle=True)
+    for split_index, (train_i, valid_i) in enumerate(kf.split(latent)):
+        for bit in range(167):
+            print(f'Fold {split_index}: Bit {bit}')
+            prediction = []
+            if np.count_nonzero([b[bit] == 0 for b in maccs[train_i]]) <= 0.01 * np.sum(
+                    [b[bit] for b in maccs[train_i]]):
+                # very imbalanced classes towards positive class
+                prediction.append(1)
+                thresholds_list.append(0)
+                auc_scores[bit] = 1
+                precision_scores[bit] = 1
+                recall_scores[bit] = 1
+                fbeta_scores[bit] = 1
+                g_mean_scores[bit] = 1
+            elif np.sum([b[bit] for b in maccs[train_i]]) <= 0.01 * np.count_nonzero(
+                    [b[bit] == 0 for b in maccs[train_i]]):
+                # very imbalanced classes towards negative class
+                prediction.append(0)
+                thresholds_list.append(np.inf)
+                auc_scores[bit] = 1
+                precision_scores[bit] = 1
+                recall_scores[bit] = 1
+                fbeta_scores[bit] = 1
+                g_mean_scores[bit] = 1
+            else:
+                scale_pos_bit = (np.count_nonzero([b[bit] == 0 for b in maccs[train_i]]) + 1) / (
+                        np.sum([b[bit] for b in maccs[train_i]]) + 1)
+                opt = BayesSearchCV(xgboost.XGBClassifier(scale_pos_weight=scale_pos_bit, objective='binary:logistic',
+                                                          eval_metric='auc'),
+                                    {'n_estimators': Integer(200, 1000, 'log-uniform'),
+                                     'max_depth': Integer(10, 1000, 'log-uniform'),
+                                     'subsample': Real(0.6, 1, 'uniform'),
+                                     'max_delta_step': Real(0, 100, 'uniform')}, n_iter=100, cv=5,
+                                    verbose=0, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
+                opt.fit(latent[train_i], [b[bit] for b in maccs[train_i]])
+                clf = opt.best_estimator_
+                valid_fpr, valid_tpr, valid_thresholds = roc_curve([b[bit] for b in maccs[valid_i]],
+                                                                   clf.predict_proba(latent[valid_i])[:, 1],
+                                                                   pos_label=1, drop_intermediate=False)
+                tpr_ratio = tpr_fpr_ratio / (1 + tpr_fpr_ratio)
+                fpr_ratio = 1 - tpr_ratio
+                g_mean = (valid_tpr ** tpr_ratio) * ((1 - valid_fpr) ** fpr_ratio)
+                validation_threshold = valid_thresholds[np.argmax(g_mean)]
+                validation_prediction = clf.predict_proba(latent[valid_i])
+                for sample in validation_prediction:
+                    if sample[1] > sample[0] and sample[1] > validation_threshold:
+                        prediction.append(1)
+                    else:
+                        prediction.append(0)
+                fbeta_scores[bit] = fbeta_score([b[bit] for b in maccs[valid_i]], prediction, beta=0.5,
                                                 zero_division=1.0)
                 try:
                     # auc_scores[bit] = roc_auc_score([b[bit] for b in maccs_valid],
                     #                                clf.predict_proba(latent_valid)[:, 1])
-                    auc_scores[bit] = roc_auc_score([b[bit] for b in maccs_valid], prediction)
+                    auc_scores[bit] = roc_auc_score([b[bit] for b in maccs[valid_i]], prediction)
                 except ValueError:
                     auc_scores[bit] = 1.0
                 if np.isnan(np.max(g_mean)):
                     g_mean_scores[bit] = 1.0
                 else:
                     g_mean_scores[bit] = np.max(g_mean)
-                precision_scores[bit] = precision_score([b[bit] for b in maccs_valid], prediction, zero_division=1.0)
-                recall_scores[bit] = recall_score([b[bit] for b in maccs_valid], prediction, zero_division=1.0)
-                thresholds_list.append(validation_threshold)
-        fbeta_df['f_beta'] = fbeta_scores
-        f2_df['f_2'] = f2_scores
-        auc_df['AUC'] = auc_scores
-        g_mean_df['g_mean'] = g_mean_scores
-        precision_df['precision'] = precision_scores
-        recall_df['recall'] = recall_scores
+                precision_scores[bit] = precision_score([b[bit] for b in maccs[valid_i]], prediction,
+                                                        zero_division=1.0)
+                recall_scores[bit] = recall_score([b[bit] for b in maccs[valid_i]], prediction, zero_division=1.0)
+        fbeta_df[f'split {split_index}'] = fbeta_scores
+        auc_df[f'split {split_index}'] = auc_scores
+        g_mean_df[f'split {split_index}'] = g_mean_scores
+        precision_df[f'split {split_index}'] = precision_scores
+        recall_df[f'split {split_index}'] = recall_scores
     with pd.ExcelWriter('./saved_xgboost_models/scores.xlsx', engine='openpyxl', mode='w') as writer:
         fbeta_df.to_excel(writer, sheet_name='fbeta', header=True, index=True)
     with pd.ExcelWriter('./saved_xgboost_models/scores.xlsx', engine='openpyxl', mode='a') as writer:
-        f2_df.to_excel(writer, sheet_name='f_2', header=True, index=True)
         auc_df.to_excel(writer, sheet_name='auc', header=True, index=True)
         g_mean_df.to_excel(writer, sheet_name='g_mean', header=True, index=True)
         precision_df.to_excel(writer, sheet_name='precision', header=True, index=True)
         recall_df.to_excel(writer, sheet_name='recall', header=True, index=True)
-    with open('./saved_xgboost_models/thresholds.csv', 'w') as thr_f:
-        for threshold in thresholds_list:
-            thr_f.write(f'{threshold},')
-    return {'f-beta': fbeta_df.values.mean(), 'auc': auc_df.values.mean(), 'g-mean': g_mean_df.values.mean(),
-            'precision': precision_df.values.mean(), 'recall': recall_df.values.mean()}
+    return None
 
 
 def visualize_roc_curve(fpr, tpr, thresh_fpr, thresh_tpr, bit: int):

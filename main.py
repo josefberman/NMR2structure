@@ -3,6 +3,7 @@ from database import import_database, visualize_smarts, maccs_to_substructures
 from sklearn.model_selection import train_test_split
 import numpy as np
 import os
+import warnings
 
 
 def concatenate_roc(l: list):
@@ -12,6 +13,8 @@ def concatenate_roc(l: list):
 if __name__ == '__main__':
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
     os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
+
+    warnings.filterwarnings('ignore')
 
     nmr_df = import_database('all')
     proton_input = np.array(nmr_df['embedded 1H'].tolist())
@@ -37,7 +40,7 @@ if __name__ == '__main__':
     latent_train, latent_test, maccs_train, maccs_test, mol_names_maccs_train, mol_names_maccs_test = train_test_split(
         latent_input, maccs_fingerprint, mol_names_maccs, train_size=0.90, shuffle=True, random_state=42)
     cv_xgboost_model(latent=latent_train, maccs=maccs_train, tpr_fpr_ratio=0.25)
-    create_xgboost_model(latent_train=latent_train, maccs_train=maccs_train)
+    create_xgboost_model(latent=latent_train, maccs=maccs_train, tpr_fpr_ratio=0.25)
 
     tested_molecules = 30
     predicted_test = []

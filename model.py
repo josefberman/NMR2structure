@@ -227,7 +227,7 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                                     {'n_estimators': Integer(200, 1000, 'log-uniform'),
                                      'max_depth': Integer(10, 1000, 'log-uniform'),
                                      'subsample': Real(0.6, 1, 'uniform'),
-                                     'max_delta_step': Real(0, 100, 'uniform')}, n_iter=100, cv=5,
+                                     'max_delta_step': Real(0, 100, 'uniform')}, n_iter=20, cv=3,
                                     verbose=0, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
                 opt.fit(latent[train_i], [b[bit] for b in maccs[train_i]])
                 clf = opt.best_estimator_

@@ -32,7 +32,7 @@ def import_database(dataset_type: str = 'all'):
     if nmr_df is None:
         mols = [Chem.AddHs(x) for x in Chem.SDMolSupplier('nmrshiftdb2withsignals.sd') if x is not None]  # extract
         mols = [x for x in mols if x is not None]
-        mols = [x for x in mols if len(x.GetAtoms()) <= 5] # for checking dependency of model to number of atoms
+        # mols = [x for x in mols if len(x.GetAtoms()) <= 30] # for checking dependency of model to number of atoms
         nmr_df = pd.DataFrame([x.GetPropsAsDict() for x in mols if x is not None])  # create dataframe based on all
         # RDKit molecular and NMR properties
         nmr_df['Molecule'] = mols  # store molecule as RDKit molecule class in dataframe

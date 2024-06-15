@@ -16,7 +16,7 @@ if __name__ == '__main__':
 
     warnings.filterwarnings('ignore')
 
-    nmr_df = import_database('all')
+    nmr_df = import_database('CHNO')
     proton_input = np.array(nmr_df['embedded 1H'].tolist())
     carbon_input = np.array(nmr_df['embedded 13C'].tolist())
 

@@ -8,6 +8,7 @@ from keras.models import Model
 from keras.optimizers import Adam
 import os
 import xgboost
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, fbeta_score, roc_curve, \
     roc_auc_score, make_scorer, log_loss
@@ -222,13 +223,17 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
             else:
                 scale_pos_bit = (np.count_nonzero([b[bit] == 0 for b in maccs[train_i]]) + 1) / (
                         np.sum([b[bit] for b in maccs[train_i]]) + 1)
-                opt = BayesSearchCV(xgboost.XGBClassifier(scale_pos_weight=scale_pos_bit, objective='binary:logistic',
-                                                          eval_metric='auc'),
-                                    {'n_estimators': Integer(200, 1000, 'log-uniform'),
-                                     'max_depth': Integer(10, 1000, 'log-uniform'),
-                                     'subsample': Real(0.6, 1, 'uniform'),
-                                     'max_delta_step': Real(0, 100, 'uniform')}, n_iter=20, cv=3,
-                                    verbose=0, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
+                opt = BayesSearchCV(RandomForestClassifier(class_weight='balanced', criterion='log_loss'),
+                                    {'n_estimators': Integer(100,1000,'log-uniform'),
+                                     'max_depth': Integer(10,1000, 'log-uniform')}, n_iter=10, cv=3,
+                                    verbose=0, refit=True)
+                # opt = BayesSearchCV(xgboost.XGBClassifier(scale_pos_weight=scale_pos_bit, objective='binary:logistic',
+                #                                           eval_metric='auc'),
+                #                     {'n_estimators': Integer(200, 1000, 'log-uniform'),
+                #                      'max_depth': Integer(10, 1000, 'log-uniform'),
+                #                      'subsample': Real(0.6, 1, 'uniform'),
+                #                      'max_delta_step': Real(0, 100, 'uniform')}, n_iter=20, cv=3,
+                #                     verbose=0, refit=True, scoring=make_scorer(log_loss, labels=[0, 1]))
                 opt.fit(latent[train_i], [b[bit] for b in maccs[train_i]])
                 clf = opt.best_estimator_
                 valid_fpr, valid_tpr, valid_thresholds = roc_curve([b[bit] for b in maccs[valid_i]],

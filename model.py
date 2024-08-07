@@ -84,7 +84,7 @@ def encode_spectrum(input_array: np.array):
 
 
 def predict_bits_from_xgboost(latent_sample):
-    with open('./saved_xgboost_models/thresholds.csv', 'r') as thr_f:
+    with open('./saved_rf_models/thresholds.csv', 'r') as thr_f:
         thresholds = list(csv.reader(thr_f, delimiter=','))[0]
     prediction = []
     for bit in range(167):
@@ -95,7 +95,7 @@ def predict_bits_from_xgboost(latent_sample):
         else:
             try:
                 clf = xgboost.XGBClassifier()
-                clf.load_model(f'./saved_xgboost_models/xgboost_{bit}.json')
+                clf.load_model(f'./saved_rf_models/rf_{bit}.json')
                 bit_prediction = clf.predict_proba([latent_sample])[0]
                 if bit_prediction[1] > bit_prediction[0] and bit_prediction[1] > float(thresholds[bit]):
                     prediction.append(1)
@@ -110,12 +110,12 @@ def predict_bits_from_xgboost(latent_sample):
 def create_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
     # warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
     clf_list = []
-    if not os.path.exists('./saved_xgboost_models'):
-        os.mkdir('./saved_xgboost_models')
+    if not os.path.exists('./saved_rf_models'):
+        os.mkdir('./saved_rf_models')
     thresholds_list = []
     latent_train, latent_valid, maccs_train, maccs_valid = train_test_split(latent, maccs, test_size=0.2,
                                                                             random_state=42)
-    with open('./saved_xgboost_models/best_params.csv', 'w') as f:
+    with open('./saved_rf_models/best_params.csv', 'w') as f:
         f.write('Bit,max_delta_step,max_depth,n_estimators,subsample,AUC\n')
         for bit in range(167):
             print(f'Bit {bit}')
@@ -160,7 +160,7 @@ def create_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                     else:
                         prediction.append(0)
                 thresholds_list.append(validation_threshold)
-    best_params = pd.read_csv('./saved_xgboost_models/best_params.csv', header=0,
+    best_params = pd.read_csv('./saved_rf_models/best_params.csv', header=0,
                               dtype={'Bit': 'int64', 'max_delta_step': 'float64', 'n_estimators': 'int64',
                                      'subsample': 'float64', 'AUC': 'float64'}, index_col='Bit')
     for bit in best_params.index:
@@ -173,16 +173,16 @@ def create_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
                                   scale_pos_weight=scale_pos_bit, objective='binary:logistic',
                                   max_delta_step=best_params.loc[bit, 'max_delta_step']))
         clf_list[-1].fit(latent, [b[bit] for b in maccs])
-        clf_list[-1].save_model(f'./saved_xgboost_models/xgboost_{bit}.json')
-    with open('./saved_xgboost_models/thresholds.csv', 'w') as thr_f:
+        clf_list[-1].save_model(f'./saved_rf_models/rf_{bit}.json')
+    with open('./saved_rf_models/thresholds.csv', 'w') as thr_f:
         for threshold in thresholds_list:
             thr_f.write(f'{threshold},')
     return clf_list
 
 
 def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
-    if not os.path.exists('./saved_xgboost_models'):
-        os.mkdir('./saved_xgboost_models')
+    if not os.path.exists('./saved_rf_models'):
+        os.mkdir('./saved_rf_models')
     # warnings.filterwarnings(action='ignore', category=UndefinedMetricWarning)
     fbeta_df = pd.DataFrame()
     auc_df = pd.DataFrame()
@@ -269,9 +269,9 @@ def cv_xgboost_model(latent, maccs, tpr_fpr_ratio=0.5):
         g_mean_df[f'split {split_index}'] = g_mean_scores
         precision_df[f'split {split_index}'] = precision_scores
         recall_df[f'split {split_index}'] = recall_scores
-    with pd.ExcelWriter('./saved_xgboost_models/scores.xlsx', engine='openpyxl', mode='w') as writer:
+    with pd.ExcelWriter('./saved_rf_models/scores.xlsx', engine='openpyxl', mode='w') as writer:
         fbeta_df.to_excel(writer, sheet_name='fbeta', header=True, index=True)
-    with pd.ExcelWriter('./saved_xgboost_models/scores.xlsx', engine='openpyxl', mode='a') as writer:
+    with pd.ExcelWriter('./saved_rf_models/scores.xlsx', engine='openpyxl', mode='a') as writer:
         auc_df.to_excel(writer, sheet_name='auc', header=True, index=True)
         g_mean_df.to_excel(writer, sheet_name='g_mean', header=True, index=True)
         precision_df.to_excel(writer, sheet_name='precision', header=True, index=True)

@@ -22,4 +22,4 @@ Gradient boosting models were implemented in XGBoost. Models take NMR peak lists
 Use the function <i>predict_bits_from_xgboost</i> from model.py and <i>maccs_to_substructures</i> from database.py<br> 
 
 <h3>Contact</h3>
-Assaf Berman (josef.berman@outlook.com)
+Josef Berman (josef.berman@outlook.com)
